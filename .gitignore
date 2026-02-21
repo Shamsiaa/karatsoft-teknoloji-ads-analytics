@@ -6,6 +6,10 @@ node_modules/
 .env.local
 .env.*.local
 
+# Secrets (never commit)
+private-key.pem
+*.pem
+
 # Logs
 logs
 *.log

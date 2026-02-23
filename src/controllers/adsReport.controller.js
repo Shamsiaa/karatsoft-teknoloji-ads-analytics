@@ -1,4 +1,8 @@
-const { getAdsReport, syncAppleAdsForDate } = require("../services/adsReport.service");
+const {
+  getAdsReport,
+  syncAppleAdsForDate,
+  syncGoogleAdsForDate,
+} = require("../services/adsReport.service");
 
 function isValidDate(date) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -37,12 +41,13 @@ async function getReport(req, res) {
 }
 
 /**
- * POST /api/ads-report/sync?date=YYYY-MM-DD
- * Fetches Apple Ads for the given date and saves to DB. Default date = yesterday.
+ * POST /api/ads-report/sync?date=YYYY-MM-DD[&platform=apple|google|all]
+ * Fetches Apple / Google Ads for the given date and saves to DB. Default date = yesterday.
  */
 async function syncReport(req, res) {
   try {
     let date = req.query.date || req.body?.date;
+    const platform = (req.query.platform || req.body?.platform || "all").toLowerCase();
     if (!date) {
       const d = new Date();
       d.setUTCDate(d.getUTCDate() - 1);
@@ -55,12 +60,21 @@ async function syncReport(req, res) {
       });
     }
 
-    const result = await syncAppleAdsForDate(date);
+    const results = [];
+
+    if (platform === "apple" || platform === "all") {
+      results.push(await syncAppleAdsForDate(date));
+    }
+
+    if (platform === "google" || platform === "all") {
+      results.push(await syncGoogleAdsForDate(date));
+    }
 
     return res.json({
       success: true,
-      message: `Synced Apple Ads for ${date}`,
-      ...result,
+      date,
+      platform,
+      results,
     });
   } catch (err) {
     console.error("Error syncing ads report:", err);

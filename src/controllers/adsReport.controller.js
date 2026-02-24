@@ -2,6 +2,7 @@ const {
   getAdsReport,
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
+  syncRevenueCatForDate,
 } = require("../services/adsReport.service");
 
 function isValidDate(date) {
@@ -41,7 +42,7 @@ async function getReport(req, res) {
 }
 
 /**
- * POST /api/ads-report/sync?date=YYYY-MM-DD[&platform=apple|google|all]
+ * POST /api/ads-report/sync?date=YYYY-MM-DD[&platform=apple|google|revenuecat|all]
  * Fetches Apple / Google Ads for the given date and saves to DB. Default date = yesterday.
  */
 async function syncReport(req, res) {
@@ -68,6 +69,10 @@ async function syncReport(req, res) {
 
     if (platform === "google" || platform === "all") {
       results.push(await syncGoogleAdsForDate(date));
+    }
+
+    if (platform === "revenuecat" || platform === "all") {
+      results.push(await syncRevenueCatForDate(date));
     }
 
     return res.json({

@@ -4,6 +4,7 @@ require("dotenv").config();
 const reportRoutes = require("./routes/report.route");
 const appleAdsRoutes = require("./routes/appleAds.route");
 const adsReportRoutes = require("./routes/adsReport.route");
+const revenueReportRoutes = require("./routes/revenueReport.route");
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use("/report", reportRoutes);
 app.use("/apple-ads", appleAdsRoutes);
 // Unified ads report (project spec): GET /api/ads-report, POST /api/ads-report/sync
 app.use("/api/ads-report", adsReportRoutes);
+app.use("/api/revenue-report", revenueReportRoutes);
 
 const PORT = process.env.PORT || 3000;
 

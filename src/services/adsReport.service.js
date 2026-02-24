@@ -1,6 +1,7 @@
 const { getCampaignsMetrics } = require("./appleAds/metrics.service");
 const { getGoogleCampaignDailyMetrics } = require("./googleAds/api.client");
 const adMetricsRepo = require("../db/adMetrics.repository");
+const { syncRevenueForDate } = require("./revenueReport.service");
 
 const PLATFORM_APPLE = "apple";
 const PLATFORM_GOOGLE = "google";
@@ -57,6 +58,11 @@ async function syncGoogleAdsForDate(date) {
   return { date, platform: PLATFORM_GOOGLE, count: saved.length, campaigns: saved };
 }
 
+
+async function syncRevenueCatForDate(date) {
+  return syncRevenueForDate(date);
+}
+
 /**
  * Get unified ads report from DB for date range.
  * Optional filter by platform (apple | google).
@@ -69,4 +75,5 @@ module.exports = {
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
   getAdsReport,
+  syncRevenueCatForDate,
 };

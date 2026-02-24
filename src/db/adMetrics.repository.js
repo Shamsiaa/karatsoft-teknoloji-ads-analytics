@@ -87,7 +87,22 @@ async function getAdsReport(startDate, endDate, platform = null) {
   }));
 }
 
+
+async function getCostTotal(startDate, endDate) {
+  const [rows] = await pool.query(
+    `
+      SELECT COALESCE(SUM(cost), 0) AS total
+      FROM ad_metrics
+      WHERE metric_date BETWEEN ? AND ?
+    `,
+    [startDate, endDate]
+  );
+
+  return Number(rows?.[0]?.total || 0);
+}
+
 module.exports = {
   upsertAdMetrics,
   getAdsReport,
+  getCostTotal,
 };

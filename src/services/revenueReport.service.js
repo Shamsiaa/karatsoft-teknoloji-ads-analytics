@@ -21,7 +21,19 @@ async function syncRevenueForDate(date) {
 }
 
 async function getRevenueReport(startDate, endDate, appId = null) {
-  return revenueRepo.getRevenueReport(startDate, endDate, appId);
+  const rows = await revenueRepo.getRevenueReport(startDate, endDate, appId);
+
+  return rows.map((row) => {
+    if (row.source === "revenuecat") {
+      return {
+        ...row,
+        dataType: "aggregate_overview",
+        granularity: "snapshot",
+      };
+    }
+
+    return row;
+  });
 }
 
 async function getSpendRevenueComparison(startDate, endDate) {
@@ -39,6 +51,9 @@ async function getSpendRevenueComparison(startDate, endDate) {
     revenue: revenueTotal,
     profit: revenueTotal - spendTotal,
     roas,
+    revenueDataType: "aggregate_overview",
+    revenueGranularity: "snapshot",
+    note: "Revenue is derived from RevenueCat overview metrics and is not transactional daily revenue.",
   };
 }
 

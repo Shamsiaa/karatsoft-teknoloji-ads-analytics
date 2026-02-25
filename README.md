@@ -62,6 +62,15 @@ Automatically fetch and report:
 
 > Note: RevenueCat endpoint path is configurable through `REVENUECAT_METRICS_PATH_TEMPLATE` to support API-version differences.
 
+### ⏰ Daily Scheduler
+
+- Built-in worker syncs **Apple Ads + RevenueCat** once per day.
+- Runs on server start and schedules next run at a configured UTC time.
+- Configurable via:
+  - `DAILY_SYNC_ENABLED=true|false`
+  - `DAILY_SYNC_TIME_UTC=HH:mm`
+  - `DAILY_SYNC_RUN_ON_STARTUP=true|false`
+
 ---
 
 ## 🌐 REST API Endpoints
@@ -106,5 +115,30 @@ Automatically fetch and report:
 Template example:
 
 ```bash
-REVENUECAT_METRICS_PATH_TEMPLATE=/projects/{projectId}/metrics/overview?start_date={startDate}&end_date={endDate}&granularity=daily
+REVENUECAT_METRICS_PATH_TEMPLATE=/projects/{projectId}/metrics/overview
+```
+
+Scheduler example:
+
+```bash
+DAILY_SYNC_ENABLED=true
+DAILY_SYNC_TIME_UTC=02:00
+DAILY_SYNC_RUN_ON_STARTUP=false
+```
+
+---
+
+## 🗃️ Database Setup
+
+Run migrations in order:
+
+```bash
+mysql -u user -p database < migrations/001_ad_metrics.sql
+mysql -u user -p database < migrations/002_revenue_metrics.sql
+```
+
+Optional local fixture seed for non-zero ROAS testing:
+
+```bash
+mysql -u user -p database < migrations/003_seed_roas_fixture.sql
 ```

@@ -1,5 +1,6 @@
 const {
   getAdsReport,
+  getAdsTrend,
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
   syncRevenueCatForDate,
@@ -36,6 +37,37 @@ async function getReport(req, res) {
     console.error("Error in ads-report:", err);
     return res.status(500).json({
       error: "Failed to get ads report",
+      message: err.message,
+    });
+  }
+}
+
+/**
+ * GET /api/ads-report/trend?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&platform=apple|google
+ * Returns daily totals grouped by metric_date for charting.
+ */
+async function getTrend(req, res) {
+  try {
+    const { startDate, endDate, platform } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: "startDate and endDate query parameters are required (format: YYYY-MM-DD)",
+      });
+    }
+
+    if (!isValidDate(startDate) || !isValidDate(endDate)) {
+      return res.status(400).json({
+        error: "Invalid date format. Expected YYYY-MM-DD",
+      });
+    }
+
+    const rows = await getAdsTrend(startDate, endDate, platform || null);
+    return res.json(rows);
+  } catch (err) {
+    console.error("Error in ads-report trend:", err);
+    return res.status(500).json({
+      error: "Failed to get ads trend",
       message: err.message,
     });
   }
@@ -92,5 +124,6 @@ async function syncReport(req, res) {
 
 module.exports = {
   getReport,
+  getTrend,
   syncReport,
 };

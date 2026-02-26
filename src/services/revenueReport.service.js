@@ -57,8 +57,77 @@ async function getSpendRevenueComparison(startDate, endDate) {
   };
 }
 
+function parseCsvEnv(name) {
+  const raw = process.env[name];
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+async function getPlatformSpendRevenueComparison(startDate, endDate) {
+  const [appleSpend, googleSpend, totalRevenue] = await Promise.all([
+    adMetricsRepo.getCostTotal(startDate, endDate, "apple"),
+    adMetricsRepo.getCostTotal(startDate, endDate, "google"),
+    revenueRepo.getNetRevenueTotal(startDate, endDate),
+  ]);
+
+  const totalSpend = appleSpend + googleSpend;
+
+  const appleAppIds = parseCsvEnv("REVENUECAT_APPLE_APP_IDS");
+  const googleAppIds = parseCsvEnv("REVENUECAT_GOOGLE_APP_IDS");
+
+  let appleRevenue = 0;
+  let googleRevenue = 0;
+  let revenueAttribution = "estimated_by_spend_share";
+
+  if (appleAppIds.length > 0 || googleAppIds.length > 0) {
+    const [appleMapped, googleMapped] = await Promise.all([
+      revenueRepo.getNetRevenueByAppIds(startDate, endDate, appleAppIds),
+      revenueRepo.getNetRevenueByAppIds(startDate, endDate, googleAppIds),
+    ]);
+
+    appleRevenue = appleMapped;
+    googleRevenue = googleMapped;
+    revenueAttribution = "mapped_by_revenuecat_app_ids";
+  } else if (totalSpend > 0) {
+    appleRevenue = totalRevenue * (appleSpend / totalSpend);
+    googleRevenue = totalRevenue * (googleSpend / totalSpend);
+  }
+
+  const appleRoas = appleSpend > 0 ? appleRevenue / appleSpend : null;
+  const googleRoas = googleSpend > 0 ? googleRevenue / googleSpend : null;
+  const totalRoas = totalSpend > 0 ? totalRevenue / totalSpend : null;
+
+  return {
+    startDate,
+    endDate,
+    apple: {
+      spend: appleSpend,
+      revenue: appleRevenue,
+      profit: appleRevenue - appleSpend,
+      roas: appleRoas,
+    },
+    google: {
+      spend: googleSpend,
+      revenue: googleRevenue,
+      profit: googleRevenue - googleSpend,
+      roas: googleRoas,
+    },
+    total: {
+      spend: totalSpend,
+      revenue: totalRevenue,
+      profit: totalRevenue - totalSpend,
+      roas: totalRoas,
+    },
+    revenueAttribution,
+  };
+}
+
 module.exports = {
   syncRevenueForDate,
   getRevenueReport,
   getSpendRevenueComparison,
+  getPlatformSpendRevenueComparison,
 };

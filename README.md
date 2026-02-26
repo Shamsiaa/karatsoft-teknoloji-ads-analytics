@@ -85,6 +85,7 @@ Automatically fetch and report:
 - `GET /api/revenue-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appId=...]`
 - `POST /api/revenue-report/sync?date=YYYY-MM-DD`
 - `GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
+- `GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
 
 `/compare` returns high-level totals:
 
@@ -142,3 +143,35 @@ Optional local fixture seed for non-zero ROAS testing:
 ```bash
 mysql -u user -p database < migrations/003_seed_roas_fixture.sql
 ```
+
+---
+
+## 🖥️ Frontend (React + Tailwind)
+
+A minimal dashboard UI is available under `client/`.
+
+Run:
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Optional frontend env:
+
+```bash
+VITE_API_BASE_URL=http://localhost:3000
+```
+
+Current UI includes:
+- Date preset + platform filters
+- KPI cards (Clicks, Impressions, Spend, Conversions, CPC, CPM)
+- Campaign performance table from `/api/ads-report`
+- Revenue/ROAS summary from `/api/revenue-report/compare`
+- Platform spend/revenue blocks (Apple, Google, Total) from `/api/revenue-report/platform-compare`
+- Scheduler status from `/api/system/scheduler-status`
+
+Platform revenue attribution behavior:
+- Preferred: set `REVENUECAT_APPLE_APP_IDS` and `REVENUECAT_GOOGLE_APP_IDS` (comma-separated app IDs) for direct RevenueCat app mapping.
+- Fallback: if mapping vars are not set, backend estimates Apple/Google revenue split by spend share.

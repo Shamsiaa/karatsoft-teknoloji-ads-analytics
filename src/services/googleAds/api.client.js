@@ -1,7 +1,7 @@
 const https = require("https");
 const { getGoogleAdsAccessToken } = require("./auth.service");
 
-const GOOGLE_ADS_API_VERSION = "v16";
+const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v22";
 
 function getRequiredEnv(name) {
   const value = process.env[name];
@@ -12,9 +12,11 @@ function getRequiredEnv(name) {
 }
 
 async function googleAdsSearchStream(query) {
-  const customerId = getRequiredEnv("GOOGLE_ADS_CUSTOMER_ID");
+  const customerId = getRequiredEnv("GOOGLE_ADS_CUSTOMER_ID").replace(/-/g, "");
   const developerToken = getRequiredEnv("GOOGLE_ADS_DEVELOPER_TOKEN");
-  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
+  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+    ? process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, "")
+    : null;
 
   const accessToken = await getGoogleAdsAccessToken();
 
@@ -48,6 +50,39 @@ async function googleAdsSearchStream(query) {
           data += chunk;
         });
         res.on("end", () => {
+          const statusCode = res.statusCode || 0;
+          const contentType = String(res.headers["content-type"] || "");
+
+          if (statusCode < 200 || statusCode >= 300) {
+            let details = data;
+            try {
+              details = JSON.stringify(JSON.parse(data));
+            } catch (_err) {
+              details = data.slice(0, 500).replace(/\s+/g, " ");
+            }
+
+            return reject(
+              new Error(
+                `Google Ads API error (${statusCode}) [${contentType || "unknown"}]: ${details}`,
+              ),
+            );
+          }
+
+          const looksJson =
+            contentType.includes("application/json") ||
+            data.trim().startsWith("{") ||
+            data.trim().startsWith("[");
+
+          if (!looksJson) {
+            return reject(
+              new Error(
+                `Google Ads returned non-JSON response [${contentType || "unknown"}]: ${data
+                  .slice(0, 500)
+                  .replace(/\s+/g, " ")}`,
+              ),
+            );
+          }
+
           try {
             const parsed = JSON.parse(data || "[]");
             const chunks = Array.isArray(parsed) ? parsed : [parsed];
@@ -57,20 +92,11 @@ async function googleAdsSearchStream(query) {
                 results.push(...c.results);
               }
             }
-
-            if (res.statusCode >= 200 && res.statusCode < 300) {
-              resolve(results);
-            } else {
-              reject(
-                new Error(
-                  `Google Ads API error: ${res.statusCode} - ${data}`,
-                ),
-              );
-            }
+            resolve(results);
           } catch (err) {
             reject(
               new Error(
-                `Failed to parse Google Ads response: ${err.message}`,
+                `Failed to parse Google Ads JSON response: ${err.message}. Raw: ${data.slice(0, 500)}`,
               ),
             );
           }

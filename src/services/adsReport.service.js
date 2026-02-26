@@ -71,9 +71,14 @@ async function getAdsReport(startDate, endDate, platform = null) {
   return adMetricsRepo.getAdsReport(startDate, endDate, platform);
 }
 
+async function getAdsTrend(startDate, endDate, platform = null) {
+  return adMetricsRepo.getAdsDailyTrend(startDate, endDate, platform);
+}
+
 module.exports = {
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
   getAdsReport,
+  getAdsTrend,
   syncRevenueCatForDate,
 };

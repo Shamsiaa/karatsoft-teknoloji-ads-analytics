@@ -4,6 +4,7 @@ const {
   getRevenue,
   syncRevenue,
   getComparison,
+  getPlatformComparison,
 } = require("../controllers/revenueReport.controller");
 
 // GET /api/revenue-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&appId=...
@@ -14,5 +15,8 @@ router.post("/sync", syncRevenue);
 
 // GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 router.get("/compare", getComparison);
+
+// GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+router.get("/platform-compare", getPlatformComparison);
 
 module.exports = router;

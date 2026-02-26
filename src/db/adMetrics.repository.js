@@ -88,21 +88,64 @@ async function getAdsReport(startDate, endDate, platform = null) {
 }
 
 
-async function getCostTotal(startDate, endDate) {
+async function getCostTotal(startDate, endDate, platform = null) {
+  const conditions = ["metric_date BETWEEN ? AND ?"];
+  const params = [startDate, endDate];
+
+  if (platform) {
+    conditions.push("platform = ?");
+    params.push(platform);
+  }
+
   const [rows] = await pool.query(
     `
       SELECT COALESCE(SUM(cost), 0) AS total
       FROM ad_metrics
-      WHERE metric_date BETWEEN ? AND ?
+      WHERE ${conditions.join(" AND ")}
     `,
-    [startDate, endDate]
+    params,
   );
 
   return Number(rows?.[0]?.total || 0);
+}
+
+async function getAdsDailyTrend(startDate, endDate, platform = null) {
+  const conditions = ["metric_date BETWEEN ? AND ?"];
+  const params = [startDate, endDate];
+
+  if (platform) {
+    conditions.push("platform = ?");
+    params.push(platform);
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT
+        metric_date AS date,
+        COALESCE(SUM(clicks), 0) AS clicks,
+        COALESCE(SUM(impressions), 0) AS impressions,
+        COALESCE(SUM(cost), 0) AS cost,
+        COALESCE(SUM(conversions), 0) AS conversions
+      FROM ad_metrics
+      WHERE ${conditions.join(" AND ")}
+      GROUP BY metric_date
+      ORDER BY metric_date
+    `,
+    params,
+  );
+
+  return rows.map((r) => ({
+    date: new Date(r.date).toISOString().slice(0, 10),
+    clicks: Number(r.clicks) || 0,
+    impressions: Number(r.impressions) || 0,
+    cost: Number(r.cost) || 0,
+    conversions: Number(r.conversions) || 0,
+  }));
 }
 
 module.exports = {
   upsertAdMetrics,
   getAdsReport,
   getCostTotal,
+  getAdsDailyTrend,
 };

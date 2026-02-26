@@ -152,18 +152,11 @@ async function getCampaignsMetrics(startDate, endDate, options = {}) {
     const reportParams = {
       startTime: startDate,
       endTime: endDate,
-      // Campaign-level report: do not send granularity (API rejects it here)
       timeZone: options.timeZone || "UTC",
-      returnRecordsWithNoMetrics:
-        options.returnRecordsWithNoMetrics || false,
+      returnRecordsWithNoMetrics: options.returnRecordsWithNoMetrics || false,
       returnRowTotals: options.returnRowTotals ?? true,
       selector: {
-        orderBy: [
-          {
-            field: "localSpend",
-            sortOrder: "DESCENDING",
-          },
-        ],
+        orderBy: [{ field: "localSpend", sortOrder: "DESCENDING" }],
         pagination: {
           offset: options.offset || 0,
           limit: options.limit || 1000,
@@ -172,11 +165,21 @@ async function getCampaignsMetrics(startDate, endDate, options = {}) {
     };
 
     const reportData = await getCampaignsReport(reportParams);
+    const metrics = extractMetrics(reportData);
+
+    // ✅ Log each metric in UTC
+    metrics.forEach((m) => {
+      const utcDate = m.date;
+      const localDate = new Date(utcDate).toString();
+      console.log(
+        `Campaign ${m.campaignName} | UTC: ${utcDate} | Local: ${localDate} | Taps: ${m.taps} | Spend: ${m.spend}`,
+      );
+    });
 
     if (options.debug) {
-      return { metrics: extractMetrics(reportData), rawResponse: reportData };
+      return { metrics, rawResponse: reportData };
     }
-    return extractMetrics(reportData);
+    return metrics;
   } catch (error) {
     throw new Error(`Failed to get campaigns metrics: ${error.message}`);
   }

@@ -2,6 +2,7 @@ const {
   syncRevenueForDate,
   getRevenueReport,
   getSpendRevenueComparison,
+  getPlatformSpendRevenueComparison,
 } = require("../services/revenueReport.service");
 
 function isValidDate(date) {
@@ -76,8 +77,34 @@ async function getComparison(req, res) {
   }
 }
 
+async function getPlatformComparison(req, res) {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: "startDate and endDate query parameters are required (format: YYYY-MM-DD)",
+      });
+    }
+
+    if (!isValidDate(startDate) || !isValidDate(endDate)) {
+      return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD" });
+    }
+
+    const comparison = await getPlatformSpendRevenueComparison(startDate, endDate);
+    return res.json(comparison);
+  } catch (error) {
+    console.error("Error creating platform spend vs revenue comparison:", error);
+    return res.status(500).json({
+      error: "Failed to get platform spend vs revenue comparison",
+      message: error.message,
+    });
+  }
+}
+
 module.exports = {
   getRevenue,
   syncRevenue,
   getComparison,
+  getPlatformComparison,
 };

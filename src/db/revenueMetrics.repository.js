@@ -96,8 +96,28 @@ async function getNetRevenueTotal(startDate, endDate) {
   return Number(rows?.[0]?.total || 0);
 }
 
+async function getNetRevenueByAppIds(startDate, endDate, appIds = []) {
+  if (!Array.isArray(appIds) || appIds.length === 0) {
+    return 0;
+  }
+
+  const placeholders = appIds.map(() => "?").join(", ");
+  const [rows] = await pool.query(
+    `
+      SELECT COALESCE(SUM(net_revenue), 0) AS total
+      FROM revenue_metrics
+      WHERE metric_date BETWEEN ? AND ?
+        AND app_id IN (${placeholders})
+    `,
+    [startDate, endDate, ...appIds],
+  );
+
+  return Number(rows?.[0]?.total || 0);
+}
+
 module.exports = {
   upsertRevenueMetric,
   getRevenueReport,
   getNetRevenueTotal,
+  getNetRevenueByAppIds,
 };

@@ -75,10 +75,80 @@ async function getAdsTrend(startDate, endDate, platform = null) {
   return adMetricsRepo.getAdsDailyTrend(startDate, endDate, platform);
 }
 
+function aggregateRows(rows) {
+  const map = new Map();
+
+  for (const row of rows) {
+    const platform = row.platform;
+    const campaign = row.campaign || "";
+    const key = `${platform}::${campaign}`;
+
+    const current = map.get(key) || {
+      platform,
+      campaign,
+      clicks: 0,
+      impressions: 0,
+      cost: 0,
+      conversions: 0,
+    };
+
+    current.clicks += Number(row.clicks || 0);
+    current.impressions += Number(row.impressions || 0);
+    current.cost += Number(row.cost || 0);
+    current.conversions += Number(row.conversions || 0);
+
+    map.set(key, current);
+  }
+
+  return [...map.values()].sort((a, b) =>
+    `${a.platform}:${a.campaign}`.localeCompare(`${b.platform}:${b.campaign}`),
+  );
+}
+
+async function getLiveAdsReport(startDate, endDate, platform = null) {
+  const rows = [];
+
+  if (!platform || platform === PLATFORM_APPLE) {
+    const apple = await getCampaignsMetrics(startDate, endDate, {
+      limit: 1000,
+      timeZone: process.env.APPLE_ADS_REPORT_TIMEZONE || "UTC",
+    });
+
+    for (const m of apple) {
+      rows.push({
+        platform: PLATFORM_APPLE,
+        campaign: m.campaignName || "",
+        clicks: m.taps ?? 0,
+        impressions: m.impressions ?? 0,
+        cost: m.spend ?? 0,
+        conversions: m.installs ?? 0,
+      });
+    }
+  }
+
+  if (!platform || platform === PLATFORM_GOOGLE) {
+    const google = await getGoogleCampaignDailyMetrics(startDate, endDate);
+
+    for (const m of google) {
+      rows.push({
+        platform: PLATFORM_GOOGLE,
+        campaign: m.campaignName || "",
+        clicks: m.clicks ?? 0,
+        impressions: m.impressions ?? 0,
+        cost: m.cost ?? 0,
+        conversions: m.conversions ?? 0,
+      });
+    }
+  }
+
+  return aggregateRows(rows);
+}
+
 module.exports = {
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
   getAdsReport,
   getAdsTrend,
+  getLiveAdsReport,
   syncRevenueCatForDate,
 };

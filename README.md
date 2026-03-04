@@ -77,15 +77,29 @@ Automatically fetch and report:
 
 ### Ads report
 
-- `GET /api/ads-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=apple|google]`
+- `GET /api/ads-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=apple|google][&appKey=photoverse]`
+- `GET /api/ads-report/live?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=apple|google]`
 - `POST /api/ads-report/sync?date=YYYY-MM-DD[&platform=apple|google|revenuecat|all]`
+  - Also supports range sync: `POST /api/ads-report/sync?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=...]`
 
 ### Revenue report
 
 - `GET /api/revenue-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appId=...]`
 - `POST /api/revenue-report/sync?date=YYYY-MM-DD`
-- `GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
-- `GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
+- `GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]`
+- `GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]`
+
+### Apps, Mapping, Store Revenue
+
+- `GET /api/apps`
+- `POST /api/apps`
+- `GET /api/apps/campaign-mappings[?appKey=photoverse]`
+- `POST /api/apps/campaign-mappings`
+- `POST /api/apps/store-revenue/import`
+- `POST /api/apps/store-revenue/import/app-store-csv`
+- `POST /api/apps/store-revenue/import/google-play-csv`
+- `POST /api/apps/store-revenue/sync?appKey=photoverse&date=YYYY-MM-DD[&store=app_store|google_play|all]`
+- `POST /api/apps/store-revenue/sync-range?appKey=photoverse&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&store=app_store|google_play|all]`
 
 `/compare` returns high-level totals:
 
@@ -136,6 +150,9 @@ Run migrations in order:
 ```bash
 mysql -u user -p database < migrations/001_ad_metrics.sql
 mysql -u user -p database < migrations/002_revenue_metrics.sql
+mysql -u user -p database < migrations/004_apps.sql
+mysql -u user -p database < migrations/005_campaign_app_mapping.sql
+mysql -u user -p database < migrations/006_store_revenue_metrics.sql
 ```
 
 Optional local fixture seed for non-zero ROAS testing:
@@ -173,5 +190,26 @@ Current UI includes:
 - Scheduler status from `/api/system/scheduler-status`
 
 Platform revenue attribution behavior:
-- Preferred: set `REVENUECAT_APPLE_APP_IDS` and `REVENUECAT_GOOGLE_APP_IDS` (comma-separated app IDs) for direct RevenueCat app mapping.
-- Fallback: if mapping vars are not set, backend estimates Apple/Google revenue split by spend share.
+- Preferred: import direct store financial data to `store_revenue_metrics` (`app_store` / `google_play`).
+- Fallback 1: RevenueCat app-id mapping (`REVENUECAT_APPLE_APP_IDS` / `REVENUECAT_GOOGLE_APP_IDS`).
+- Fallback 2: spend-share estimate if no direct platform revenue exists.
+
+CSV connector notes:
+- App Store / Google Play exported report text can be sent as `csvText`.
+- Parser supports common headers (date, net revenue, gross, refunds, taxes, fees, currency, units).
+- Rows with invalid dates are skipped and reported in response.
+
+Direct connector notes:
+- App Store Connect connector uses `/v1/salesReports` and requires:
+  - `APP_STORE_CONNECT_ISSUER_ID`
+  - `APP_STORE_CONNECT_KEY_ID`
+  - `APP_STORE_CONNECT_PRIVATE_KEY_PATH`
+  - `APP_STORE_CONNECT_VENDOR_NUMBER`
+- Google Play connector reads financial report CSVs from Cloud Storage via service account:
+  - `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_PATH`
+  - `GOOGLE_PLAY_REPORTS_BUCKET`
+  - `GOOGLE_PLAY_REPORTS_PREFIX`
+
+Daily automation:
+- Enable with `DAILY_STORE_REVENUE_SYNC_ENABLED=true`
+- Set apps list with `STORE_REVENUE_SYNC_APP_KEYS=photoverse,another_app`

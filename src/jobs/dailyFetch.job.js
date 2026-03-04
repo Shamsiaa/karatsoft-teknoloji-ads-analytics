@@ -2,6 +2,7 @@ const {
   syncAppleAdsForDate,
   syncRevenueCatForDate,
 } = require("../services/adsReport.service");
+const { syncStoreRevenueForDate } = require("../services/storeRevenueSync.service");
 
 let schedulerTimeout = null;
 let isSyncRunning = false;
@@ -70,6 +71,20 @@ async function runDailySync(date = getYesterdayUtcDate()) {
         success: false,
         error: error.message,
       });
+    }
+
+    const storeSyncEnabled = String(process.env.DAILY_STORE_REVENUE_SYNC_ENABLED || "false").toLowerCase();
+    if (storeSyncEnabled === "true" || storeSyncEnabled === "1") {
+      try {
+        const storeResult = await syncStoreRevenueForDate(date);
+        results.push(storeResult);
+      } catch (error) {
+        results.push({
+          source: "store_revenue",
+          success: false,
+          error: error.message,
+        });
+      }
     }
 
     const result = { skipped: false, date, results };

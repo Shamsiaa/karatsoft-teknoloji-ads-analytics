@@ -67,12 +67,12 @@ async function syncRevenueCatForDate(date) {
  * Get unified ads report from DB for date range.
  * Optional filter by platform (apple | google).
  */
-async function getAdsReport(startDate, endDate, platform = null) {
-  return adMetricsRepo.getAdsReport(startDate, endDate, platform);
+async function getAdsReport(startDate, endDate, platform = null, appKey = null) {
+  return adMetricsRepo.getAdsReport(startDate, endDate, platform, appKey);
 }
 
-async function getAdsTrend(startDate, endDate, platform = null) {
-  return adMetricsRepo.getAdsDailyTrend(startDate, endDate, platform);
+async function getAdsTrend(startDate, endDate, platform = null, appKey = null) {
+  return adMetricsRepo.getAdsDailyTrend(startDate, endDate, platform, appKey);
 }
 
 function aggregateRows(rows) {

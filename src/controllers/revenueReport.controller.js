@@ -54,7 +54,7 @@ async function syncRevenue(req, res) {
 
 async function getComparison(req, res) {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, appKey } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -66,7 +66,7 @@ async function getComparison(req, res) {
       return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD" });
     }
 
-    const comparison = await getSpendRevenueComparison(startDate, endDate);
+    const comparison = await getSpendRevenueComparison(startDate, endDate, appKey || null);
     return res.json(comparison);
   } catch (error) {
     console.error("Error creating spend vs revenue comparison:", error);
@@ -79,7 +79,7 @@ async function getComparison(req, res) {
 
 async function getPlatformComparison(req, res) {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, appKey } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -91,7 +91,7 @@ async function getPlatformComparison(req, res) {
       return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD" });
     }
 
-    const comparison = await getPlatformSpendRevenueComparison(startDate, endDate);
+    const comparison = await getPlatformSpendRevenueComparison(startDate, endDate, appKey || null);
     return res.json(comparison);
   } catch (error) {
     console.error("Error creating platform spend vs revenue comparison:", error);

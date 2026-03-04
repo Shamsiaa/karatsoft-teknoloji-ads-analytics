@@ -51,28 +51,42 @@ async function upsertAdMetrics(row) {
  * Returns one row per platform + campaign with summed metrics.
  * Format: { platform, campaign, clicks, impressions, cost, conversions? }
  */
-async function getAdsReport(startDate, endDate, platform = null) {
-  const conditions = ["metric_date BETWEEN ? AND ?"];
+async function getAdsReport(startDate, endDate, platform = null, appKey = null) {
+  const conditions = ["ad_metrics.metric_date BETWEEN ? AND ?"];
   const params = [startDate, endDate];
+  const joins = [];
 
   if (platform) {
-    conditions.push("platform = ?");
+    conditions.push("ad_metrics.platform = ?");
     params.push(platform);
+  }
+
+  if (appKey) {
+    joins.push(`
+      JOIN campaign_app_mapping cam
+        ON BINARY cam.platform = BINARY ad_metrics.platform
+       AND BINARY cam.campaign_id = BINARY ad_metrics.campaign_id
+       AND (cam.valid_from IS NULL OR ad_metrics.metric_date >= cam.valid_from)
+       AND (cam.valid_to IS NULL OR ad_metrics.metric_date <= cam.valid_to)
+    `);
+    conditions.push("BINARY cam.app_key = BINARY ?");
+    params.push(appKey);
   }
 
   const [rows] = await pool.query(
     `
     SELECT
-      platform AS platform,
-      campaign_name AS campaign,
-      SUM(clicks) AS clicks,
-      SUM(impressions) AS impressions,
-      SUM(cost) AS cost,
-      SUM(conversions) AS conversions
+      ad_metrics.platform AS platform,
+      ad_metrics.campaign_name AS campaign,
+      SUM(ad_metrics.clicks) AS clicks,
+      SUM(ad_metrics.impressions) AS impressions,
+      SUM(ad_metrics.cost) AS cost,
+      SUM(ad_metrics.conversions) AS conversions
     FROM ad_metrics
+    ${joins.join("\n")}
     WHERE ${conditions.join(" AND ")}
-    GROUP BY platform, campaign_id, campaign_name
-    ORDER BY platform, campaign_name
+    GROUP BY ad_metrics.platform, ad_metrics.campaign_id, ad_metrics.campaign_name
+    ORDER BY ad_metrics.platform, ad_metrics.campaign_name
     `,
     params
   );
@@ -88,19 +102,33 @@ async function getAdsReport(startDate, endDate, platform = null) {
 }
 
 
-async function getCostTotal(startDate, endDate, platform = null) {
-  const conditions = ["metric_date BETWEEN ? AND ?"];
+async function getCostTotal(startDate, endDate, platform = null, appKey = null) {
+  const conditions = ["ad_metrics.metric_date BETWEEN ? AND ?"];
   const params = [startDate, endDate];
+  const joins = [];
 
   if (platform) {
-    conditions.push("platform = ?");
+    conditions.push("ad_metrics.platform = ?");
     params.push(platform);
+  }
+
+  if (appKey) {
+    joins.push(`
+      JOIN campaign_app_mapping cam
+        ON BINARY cam.platform = BINARY ad_metrics.platform
+       AND BINARY cam.campaign_id = BINARY ad_metrics.campaign_id
+       AND (cam.valid_from IS NULL OR ad_metrics.metric_date >= cam.valid_from)
+       AND (cam.valid_to IS NULL OR ad_metrics.metric_date <= cam.valid_to)
+    `);
+    conditions.push("BINARY cam.app_key = BINARY ?");
+    params.push(appKey);
   }
 
   const [rows] = await pool.query(
     `
-      SELECT COALESCE(SUM(cost), 0) AS total
+      SELECT COALESCE(SUM(ad_metrics.cost), 0) AS total
       FROM ad_metrics
+      ${joins.join("\n")}
       WHERE ${conditions.join(" AND ")}
     `,
     params,
@@ -109,27 +137,41 @@ async function getCostTotal(startDate, endDate, platform = null) {
   return Number(rows?.[0]?.total || 0);
 }
 
-async function getAdsDailyTrend(startDate, endDate, platform = null) {
-  const conditions = ["metric_date BETWEEN ? AND ?"];
+async function getAdsDailyTrend(startDate, endDate, platform = null, appKey = null) {
+  const conditions = ["ad_metrics.metric_date BETWEEN ? AND ?"];
   const params = [startDate, endDate];
+  const joins = [];
 
   if (platform) {
-    conditions.push("platform = ?");
+    conditions.push("ad_metrics.platform = ?");
     params.push(platform);
+  }
+
+  if (appKey) {
+    joins.push(`
+      JOIN campaign_app_mapping cam
+        ON BINARY cam.platform = BINARY ad_metrics.platform
+       AND BINARY cam.campaign_id = BINARY ad_metrics.campaign_id
+       AND (cam.valid_from IS NULL OR ad_metrics.metric_date >= cam.valid_from)
+       AND (cam.valid_to IS NULL OR ad_metrics.metric_date <= cam.valid_to)
+    `);
+    conditions.push("BINARY cam.app_key = BINARY ?");
+    params.push(appKey);
   }
 
   const [rows] = await pool.query(
     `
       SELECT
-        metric_date AS date,
-        COALESCE(SUM(clicks), 0) AS clicks,
-        COALESCE(SUM(impressions), 0) AS impressions,
-        COALESCE(SUM(cost), 0) AS cost,
-        COALESCE(SUM(conversions), 0) AS conversions
+        ad_metrics.metric_date AS date,
+        COALESCE(SUM(ad_metrics.clicks), 0) AS clicks,
+        COALESCE(SUM(ad_metrics.impressions), 0) AS impressions,
+        COALESCE(SUM(ad_metrics.cost), 0) AS cost,
+        COALESCE(SUM(ad_metrics.conversions), 0) AS conversions
       FROM ad_metrics
+      ${joins.join("\n")}
       WHERE ${conditions.join(" AND ")}
-      GROUP BY metric_date
-      ORDER BY metric_date
+      GROUP BY ad_metrics.metric_date
+      ORDER BY ad_metrics.metric_date
     `,
     params,
   );

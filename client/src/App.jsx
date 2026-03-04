@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const DEBUG_LOGS = String(import.meta.env.VITE_DEBUG_LOGS || "false").toLowerCase() === "true";
+
+function debugLog(event, payload) {
+  if (!DEBUG_LOGS) return;
+  // eslint-disable-next-line no-console
+  console.log(`[dashboard] ${event}`, payload);
+}
 
 function toYmd(date) {
   return date.toISOString().slice(0, 10);
@@ -146,6 +153,7 @@ export default function App() {
       setLoading(true);
       setError("");
       try {
+        debugLog("load.start", { range, platform });
         const prevRange = getPreviousRange(range.startDate, range.endDate);
 
         const adsUrl = new URL(`${API_BASE_URL}/api/ads-report`);
@@ -207,7 +215,14 @@ export default function App() {
         setCompare(compareData);
         setPlatformCompare(platformCompareData);
         setSchedulerStatus(schedulerData);
+        debugLog("load.success", {
+          rows: currentRows.length,
+          trendRows: Array.isArray(trendData) ? trendData.length : 0,
+          compareSource: compareData?.revenueSource,
+          platformAttribution: platformCompareData?.revenueAttribution,
+        });
       } catch (e) {
+        debugLog("load.error", { message: e?.message });
         setError(e.message || "Panel verileri yüklenemedi");
       } finally {
         setLoading(false);
@@ -483,6 +498,9 @@ export default function App() {
                   Gelir türü: {compare.revenueDataType || "bilinmiyor"} (
                   {compare.revenueGranularity || "bilinmiyor"})
                 </p>
+                <p className="mt-2 text-xs text-gray-500">
+                  Kaynak: {compare.revenueSource || "bilinmiyor"}
+                </p>
               </div>
             ) : (
               <p className="text-gray-500">Gelir verisi bulunamadı.</p>
@@ -659,6 +677,7 @@ function PlatformCard({ title, data }) {
       <p className="text-sm text-gray-700">
         ROAS: <span className="font-semibold">{data?.roas == null ? "-" : Number(data.roas).toFixed(3)}</span>
       </p>
+      <p className="text-xs text-gray-500">Kaynak: {data?.revenueSource || "bilinmiyor"}</p>
     </div>
   );
 }

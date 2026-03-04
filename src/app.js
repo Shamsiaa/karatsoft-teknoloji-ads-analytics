@@ -6,11 +6,38 @@ const appleAdsRoutes = require("./routes/appleAds.route");
 const adsReportRoutes = require("./routes/adsReport.route");
 const revenueReportRoutes = require("./routes/revenueReport.route");
 const systemRoutes = require("./routes/system.route");
+const appsRoutes = require("./routes/apps.route");
 const { startDailyFetchJob, stopDailyFetchJob } = require("./jobs/dailyFetch.job");
+const logger = require("./utils/logger");
 
 const app = express();
 
 app.use(express.json());
+app.use((req, res, next) => {
+  const start = Date.now();
+  const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  req.requestId = requestId;
+  res.setHeader("x-request-id", requestId);
+
+  logger.info("http.request.start", {
+    requestId,
+    method: req.method,
+    path: req.path,
+    query: req.query || {},
+  });
+
+  res.on("finish", () => {
+    logger.info("http.request.finish", {
+      requestId,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - start,
+    });
+  });
+
+  next();
+});
 app.use((req, res, next) => {
   const allowedOrigin = process.env.CORS_ORIGIN || "*";
   res.header("Access-Control-Allow-Origin", allowedOrigin);
@@ -36,11 +63,12 @@ app.use("/apple-ads", appleAdsRoutes);
 app.use("/api/ads-report", adsReportRoutes);
 app.use("/api/revenue-report", revenueReportRoutes);
 app.use("/api/system", systemRoutes);
+app.use("/api/apps", appsRoutes);
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info("server.start", { port: PORT });
   startDailyFetchJob();
 });
 

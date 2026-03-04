@@ -27,7 +27,7 @@ function* iterateDates(startDate, endDate) {
  */
 async function getReport(req, res) {
   try {
-    const { startDate, endDate, platform } = req.query;
+    const { startDate, endDate, platform, appKey } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -41,7 +41,7 @@ async function getReport(req, res) {
       });
     }
 
-    const rows = await getAdsReport(startDate, endDate, platform || null);
+    const rows = await getAdsReport(startDate, endDate, platform || null, appKey || null);
 
     return res.json(rows);
   } catch (err) {
@@ -59,7 +59,7 @@ async function getReport(req, res) {
  */
 async function getTrend(req, res) {
   try {
-    const { startDate, endDate, platform } = req.query;
+    const { startDate, endDate, platform, appKey } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -73,7 +73,7 @@ async function getTrend(req, res) {
       });
     }
 
-    const rows = await getAdsTrend(startDate, endDate, platform || null);
+    const rows = await getAdsTrend(startDate, endDate, platform || null, appKey || null);
     return res.json(rows);
   } catch (err) {
     console.error("Error in ads-report trend:", err);

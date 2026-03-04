@@ -13,10 +13,10 @@ router.get("/", getRevenue);
 // POST /api/revenue-report/sync?date=YYYY-MM-DD
 router.post("/sync", syncRevenue);
 
-// GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+// GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=...]
 router.get("/compare", getComparison);
 
-// GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+// GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=...]
 router.get("/platform-compare", getPlatformComparison);
 
 module.exports = router;

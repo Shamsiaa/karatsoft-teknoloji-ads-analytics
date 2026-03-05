@@ -3,6 +3,7 @@ const revenueRepo = require("../db/revenueMetrics.repository");
 const adMetricsRepo = require("../db/adMetrics.repository");
 const storeRevenueRepo = require("../db/storeRevenue.repository");
 const logger = require("../utils/logger");
+const https = require("https");
 
 function shouldUseRevenuecatFallback() {
   const raw = String(process.env.USE_REVENUECAT_FALLBACK ?? "true").toLowerCase();
@@ -220,9 +221,174 @@ async function getPlatformSpendRevenueComparison(startDate, endDate, appKey = nu
   };
 }
 
+function requestJson(url) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = https.request(
+      {
+        method: "GET",
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        path: `${parsed.pathname}${parsed.search}`,
+        headers: { Accept: "application/json" },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => {
+          data += c;
+        });
+        res.on("end", () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            return reject(new Error(`FX API error (${res.statusCode}): ${data.slice(0, 300)}`));
+          }
+          try {
+            return resolve(JSON.parse(data || "{}"));
+          } catch (err) {
+            return reject(new Error(`FX API parse error: ${err.message}`));
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+async function fetchFxRate(fromCurrency, toCurrency, date) {
+  if (fromCurrency === toCurrency) return 1;
+  const url = new URL(`https://api.frankfurter.app/${date}`);
+  url.searchParams.set("from", fromCurrency);
+  url.searchParams.set("to", toCurrency);
+  const json = await requestJson(url.toString());
+  const rate = json?.rates?.[toCurrency];
+  if (!rate || !Number.isFinite(Number(rate))) {
+    throw new Error(`Missing FX rate ${fromCurrency}->${toCurrency} for ${date}`);
+  }
+  return Number(rate);
+}
+
+async function getPlatformSpendRevenueComparisonNormalized(
+  startDate,
+  endDate,
+  appKey = null,
+  targetCurrency = "USD",
+) {
+  const [appleSpend, googleSpend, byStoreCurrency] = await Promise.all([
+    adMetricsRepo.getCostTotal(startDate, endDate, "apple", appKey),
+    adMetricsRepo.getCostTotal(startDate, endDate, "google", appKey),
+    storeRevenueRepo.getNetRevenueByStoreCurrency(startDate, endDate, appKey),
+  ]);
+
+  const rows = byStoreCurrency || [];
+  const uniqueCurrencies = [...new Set(rows.map((r) => String(r.currency || "").toUpperCase()).filter(Boolean))];
+  const fxDate = endDate;
+  const rates = {};
+  const missingRates = [];
+
+  for (const currency of uniqueCurrencies) {
+    if (currency === targetCurrency) {
+      rates[currency] = 1;
+      continue;
+    }
+    try {
+      rates[currency] = await fetchFxRate(currency, targetCurrency, fxDate);
+    } catch (error) {
+      missingRates.push({
+        currency,
+        reason: error.message,
+      });
+    }
+  }
+
+  let appleRevenue = 0;
+  let googleRevenue = 0;
+  for (const row of rows) {
+    const currency = String(row.currency || "").toUpperCase();
+    const rate = rates[currency];
+    if (!rate) continue;
+    const converted = (Number(row.total) || 0) * rate;
+    if (row.store === "app_store") appleRevenue += converted;
+    if (row.store === "google_play") googleRevenue += converted;
+  }
+
+  const totalSpend = appleSpend + googleSpend;
+  const totalRevenue = appleRevenue + googleRevenue;
+
+  const result = {
+    startDate,
+    endDate,
+    appKey,
+    targetCurrency,
+    fxDate,
+    fxProvider: "frankfurter",
+    rates,
+    missingRates,
+    apple: {
+      spend: appleSpend,
+      revenue: appleRevenue,
+      profit: appleRevenue - appleSpend,
+      roas: appleSpend > 0 ? appleRevenue / appleSpend : null,
+      revenueSource: "direct_store_financial_data",
+    },
+    google: {
+      spend: googleSpend,
+      revenue: googleRevenue,
+      profit: googleRevenue - googleSpend,
+      roas: googleSpend > 0 ? googleRevenue / googleSpend : null,
+      revenueSource: "direct_store_financial_data",
+    },
+    total: {
+      spend: totalSpend,
+      revenue: totalRevenue,
+      profit: totalRevenue - totalSpend,
+      roas: totalSpend > 0 ? totalRevenue / totalSpend : null,
+      revenueSource: "direct_store_financial_data",
+    },
+  };
+
+  logger.info("revenue.platform_compare_normalized.calculated", {
+    startDate,
+    endDate,
+    appKey,
+    targetCurrency,
+    totalSpend,
+    totalRevenue,
+    missingRatesCount: missingRates.length,
+  });
+
+  return result;
+}
+
+async function getPlatformRevenueRawByCurrency(startDate, endDate, appKey = null) {
+  const rows = await storeRevenueRepo.getRawRevenueByStoreCurrency(startDate, endDate, appKey);
+
+  const apple = [];
+  const google = [];
+  for (const row of rows) {
+    const item = {
+      currency: row.currency,
+      revenue: row.total,
+    };
+    if (row.store === "app_store") apple.push(item);
+    if (row.store === "google_play") google.push(item);
+  }
+
+  return {
+    startDate,
+    endDate,
+    appKey,
+    mathMode: "raw_csv_no_conversion",
+    note: "Ham magaza verisi (donusum yok). Para birimleri birlestirilmedi.",
+    apple,
+    google,
+  };
+}
+
 module.exports = {
   syncRevenueForDate,
   getRevenueReport,
   getSpendRevenueComparison,
   getPlatformSpendRevenueComparison,
+  getPlatformSpendRevenueComparisonNormalized,
+  getPlatformRevenueRawByCurrency,
 };

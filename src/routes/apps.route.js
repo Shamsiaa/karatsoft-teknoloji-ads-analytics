@@ -9,6 +9,7 @@ const {
   importGooglePlayCsv,
   syncStoreRevenue,
   syncStoreRevenueRange,
+  listStoreRevenueLines,
 } = require("../controllers/apps.controller");
 
 const router = express.Router();
@@ -24,5 +25,6 @@ router.post("/store-revenue/import/app-store-csv", importAppStoreCsv);
 router.post("/store-revenue/import/google-play-csv", importGooglePlayCsv);
 router.post("/store-revenue/sync", syncStoreRevenue);
 router.post("/store-revenue/sync-range", syncStoreRevenueRange);
+router.get("/store-revenue/lines", listStoreRevenueLines);
 
 module.exports = router;

@@ -254,6 +254,40 @@ async function syncStoreRevenueRange(req, res) {
   }
 }
 
+async function listStoreRevenueLines(req, res) {
+  try {
+    const { appKey, store, startDate, endDate, limit } = req.query;
+    if (!appKey) {
+      return res.status(400).json({ error: "appKey is required" });
+    }
+    if (store && !["app_store", "google_play"].includes(store)) {
+      return res.status(400).json({ error: "store must be app_store or google_play" });
+    }
+    if ((startDate && !isValidDate(startDate)) || (endDate && !isValidDate(endDate))) {
+      return res.status(400).json({ error: "startDate/endDate must be YYYY-MM-DD" });
+    }
+
+    const rows = await storeRevenueRepo.listStoreRevenueLines({
+      appKey,
+      store: store || null,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      limit: limit || 200,
+    });
+
+    return res.json({
+      appKey,
+      store: store || null,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      count: rows.length,
+      rows,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to list store revenue lines", message: error.message });
+  }
+}
+
 module.exports = {
   listApps,
   upsertApp,
@@ -264,4 +298,5 @@ module.exports = {
   importGooglePlayCsv,
   syncStoreRevenue,
   syncStoreRevenueRange,
+  listStoreRevenueLines,
 };

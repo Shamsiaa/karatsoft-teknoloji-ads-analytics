@@ -50,6 +50,18 @@ function formatCurrency(value) {
   }).format(value || 0);
 }
 
+function formatCurrencyCode(value, currencyCode) {
+  try {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: currencyCode || "USD",
+      maximumFractionDigits: 2,
+    }).format(value || 0);
+  } catch (_err) {
+    return `${formatNumber(value)} ${currencyCode || "UNK"}`;
+  }
+}
+
 function percentChange(current, previous) {
   if (!previous) return null;
   return ((current - previous) / previous) * 100;
@@ -130,8 +142,7 @@ export default function App() {
   const [adsRows, setAdsRows] = useState([]);
   const [trendRows, setTrendRows] = useState([]);
   const [previousTotals, setPreviousTotals] = useState(null);
-  const [compare, setCompare] = useState(null);
-  const [platformCompare, setPlatformCompare] = useState(null);
+  const [platformRevenueRaw, setPlatformRevenueRaw] = useState(null);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -171,38 +182,31 @@ export default function App() {
         prevAdsUrl.searchParams.set("endDate", prevRange.endDate);
         if (platform !== "all") prevAdsUrl.searchParams.set("platform", platform);
 
-        const compareUrl = new URL(`${API_BASE_URL}/api/revenue-report/compare`);
-        compareUrl.searchParams.set("startDate", range.startDate);
-        compareUrl.searchParams.set("endDate", range.endDate);
-
-        const platformCompareUrl = new URL(`${API_BASE_URL}/api/revenue-report/platform-compare`);
-        platformCompareUrl.searchParams.set("startDate", range.startDate);
-        platformCompareUrl.searchParams.set("endDate", range.endDate);
+        const platformRevenueRawUrl = new URL(`${API_BASE_URL}/api/revenue-report/platform-revenue-raw`);
+        platformRevenueRawUrl.searchParams.set("startDate", range.startDate);
+        platformRevenueRawUrl.searchParams.set("endDate", range.endDate);
 
         const schedulerUrl = `${API_BASE_URL}/api/system/scheduler-status`;
 
-        const [adsRes, trendRes, prevAdsRes, compareRes, platformCompareRes, schedulerRes] = await Promise.all([
+        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, schedulerRes] = await Promise.all([
           fetch(adsUrl),
           fetch(trendUrl),
           fetch(prevAdsUrl),
-          fetch(compareUrl),
-          fetch(platformCompareUrl),
+          fetch(platformRevenueRawUrl),
           fetch(schedulerUrl),
         ]);
 
         if (!adsRes.ok) throw new Error(`ads-report failed: ${adsRes.status}`);
         if (!trendRes.ok) throw new Error(`ads-report trend failed: ${trendRes.status}`);
         if (!prevAdsRes.ok) throw new Error(`previous ads-report failed: ${prevAdsRes.status}`);
-        if (!compareRes.ok) throw new Error(`compare failed: ${compareRes.status}`);
-        if (!platformCompareRes.ok) throw new Error(`platform-compare failed: ${platformCompareRes.status}`);
+        if (!platformRevenueRawRes.ok) throw new Error(`platform-revenue-raw failed: ${platformRevenueRawRes.status}`);
         if (!schedulerRes.ok) throw new Error(`scheduler-status failed: ${schedulerRes.status}`);
 
-        const [adsData, trendData, prevAdsData, compareData, platformCompareData, schedulerData] = await Promise.all([
+        const [adsData, trendData, prevAdsData, platformRevenueRawData, schedulerData] = await Promise.all([
           adsRes.json(),
           trendRes.json(),
           prevAdsRes.json(),
-          compareRes.json(),
-          platformCompareRes.json(),
+          platformRevenueRawRes.json(),
           schedulerRes.json(),
         ]);
 
@@ -212,14 +216,12 @@ export default function App() {
         setAdsRows(currentRows);
         setTrendRows(Array.isArray(trendData) ? trendData : []);
         setPreviousTotals(sumTotals(previousRows));
-        setCompare(compareData);
-        setPlatformCompare(platformCompareData);
+        setPlatformRevenueRaw(platformRevenueRawData);
         setSchedulerStatus(schedulerData);
         debugLog("load.success", {
           rows: currentRows.length,
           trendRows: Array.isArray(trendData) ? trendData.length : 0,
-          compareSource: compareData?.revenueSource,
-          platformAttribution: platformCompareData?.revenueAttribution,
+          rawRevenueMathMode: platformRevenueRawData?.mathMode,
         });
       } catch (e) {
         debugLog("load.error", { message: e?.message });
@@ -437,73 +439,30 @@ export default function App() {
 
         <div className="mb-8 grid gap-6 lg:grid-cols-2">
           <div className="rounded-xl border bg-white p-6 shadow-sm lg:col-span-2">
-            <h2 className="mb-3 text-lg font-semibold">
-              Platform Bazlı Harcama ve Gelir
-            </h2>
-            {platformCompare ? (
+            <h2 className="mb-3 text-lg font-semibold">Platform Bazlı Gelir</h2>
+            {platformRevenueRaw ? (
               <>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <PlatformCard
-                    title="Apple Ads"
-                    data={platformCompare.apple}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <PlatformRevenueListCard
+                    title="Apple Revenue"
+                    items={platformRevenueRaw.apple}
                   />
-                  <PlatformCard
-                    title="Google Ads"
-                    data={platformCompare.google}
+                  <PlatformRevenueListCard
+                    title="Google Revenue"
+                    items={platformRevenueRaw.google}
                   />
-                  <PlatformCard title="Toplam" data={platformCompare.total} />
                 </div>
                 <p className="mt-3 text-xs text-gray-500">
-                  Gelir eşleştirme yöntemi: {platformCompare.revenueAttribution}
+                  Ham mağaza verisi (dönüşüm yok)
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Para birimleri birleştirilmedi
                 </p>
               </>
             ) : (
               <p className="text-gray-500">
                 Platform karşılaştırma verisi bulunamadı.
               </p>
-            )}
-          </div>
-
-          <div className="rounded-xl border bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold">Gelir / ROAS Özeti</h2>
-            {compare ? (
-              <div className="space-y-1 text-sm text-gray-700">
-                <p>
-                  Gelir:{" "}
-                  <span className="font-semibold">
-                    {formatCurrency(compare.revenue)}
-                  </span>
-                </p>
-                <p>
-                  Harcama:{" "}
-                  <span className="font-semibold">
-                    {formatCurrency(compare.spend)}
-                  </span>
-                </p>
-                <p>
-                  Kâr:{" "}
-                  <span className="font-semibold">
-                    {formatCurrency(compare.profit)}
-                  </span>
-                </p>
-                <p>
-                  ROAS:{" "}
-                  <span className="font-semibold">
-                    {compare.roas == null
-                      ? "-"
-                      : Number(compare.roas).toFixed(3)}
-                  </span>
-                </p>
-                <p className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">
-                  Gelir türü: {compare.revenueDataType || "bilinmiyor"} (
-                  {compare.revenueGranularity || "bilinmiyor"})
-                </p>
-                <p className="mt-2 text-xs text-gray-500">
-                  Kaynak: {compare.revenueSource || "bilinmiyor"}
-                </p>
-              </div>
-            ) : (
-              <p className="text-gray-500">Gelir verisi bulunamadı.</p>
             )}
           </div>
 
@@ -667,17 +626,24 @@ function LoadingSkeleton() {
   );
 }
 
-function PlatformCard({ title, data }) {
+function PlatformRevenueListCard({ title, items }) {
   return (
     <div className="rounded-lg border bg-gray-50 p-4">
       <p className="text-sm font-semibold text-gray-800">{title}</p>
-      <p className="mt-2 text-sm text-gray-700">Harcama: <span className="font-semibold">{formatCurrency(data?.spend || 0)}</span></p>
-      <p className="text-sm text-gray-700">Gelir: <span className="font-semibold">{formatCurrency(data?.revenue || 0)}</span></p>
-      <p className="text-sm text-gray-700">Kâr: <span className="font-semibold">{formatCurrency(data?.profit || 0)}</span></p>
-      <p className="text-sm text-gray-700">
-        ROAS: <span className="font-semibold">{data?.roas == null ? "-" : Number(data.roas).toFixed(3)}</span>
-      </p>
-      <p className="text-xs text-gray-500">Kaynak: {data?.revenueSource || "bilinmiyor"}</p>
+      <div className="mt-2 space-y-1 text-sm text-gray-700">
+        {(items || []).length ? (
+          items.map((item) => (
+            <p key={`${title}-${item.currency}`}>
+              {item.currency}:{" "}
+              <span className="font-semibold">
+                {formatCurrencyCode(item.revenue, item.currency)}
+              </span>
+            </p>
+          ))
+        ) : (
+          <p className="text-gray-500">Veri yok</p>
+        )}
+      </div>
     </div>
   );
 }

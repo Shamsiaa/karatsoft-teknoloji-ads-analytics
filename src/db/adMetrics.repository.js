@@ -19,6 +19,18 @@ async function upsertAdMetrics(row) {
 
   await pool.query(
     `
+      INSERT INTO ad_campaigns (
+        platform, external_campaign_id, campaign_name
+      ) VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        campaign_name = COALESCE(VALUES(campaign_name), campaign_name),
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [platform, String(campaignId), campaignName || null],
+  );
+
+  await pool.query(
+    `
     INSERT INTO ad_metrics (
       platform, campaign_id, campaign_name, metric_date,
       clicks, impressions, cost, conversions, avg_cpt
@@ -63,13 +75,15 @@ async function getAdsReport(startDate, endDate, platform = null, appKey = null) 
 
   if (appKey) {
     joins.push(`
-      JOIN campaign_app_mapping cam
-        ON BINARY cam.platform = BINARY ad_metrics.platform
-       AND BINARY cam.campaign_id = BINARY ad_metrics.campaign_id
-       AND (cam.valid_from IS NULL OR ad_metrics.metric_date >= cam.valid_from)
-       AND (cam.valid_to IS NULL OR ad_metrics.metric_date <= cam.valid_to)
+      JOIN ad_campaigns ac
+        ON BINARY ac.platform = BINARY ad_metrics.platform
+       AND BINARY ac.external_campaign_id = BINARY ad_metrics.campaign_id
+      JOIN app_ad_campaign_map m
+        ON m.ad_campaign_id = ac.id
+      JOIN apps a
+        ON a.id = m.app_id
     `);
-    conditions.push("BINARY cam.app_key = BINARY ?");
+    conditions.push("BINARY a.app_key = BINARY ?");
     params.push(appKey);
   }
 
@@ -114,13 +128,15 @@ async function getCostTotal(startDate, endDate, platform = null, appKey = null) 
 
   if (appKey) {
     joins.push(`
-      JOIN campaign_app_mapping cam
-        ON BINARY cam.platform = BINARY ad_metrics.platform
-       AND BINARY cam.campaign_id = BINARY ad_metrics.campaign_id
-       AND (cam.valid_from IS NULL OR ad_metrics.metric_date >= cam.valid_from)
-       AND (cam.valid_to IS NULL OR ad_metrics.metric_date <= cam.valid_to)
+      JOIN ad_campaigns ac
+        ON BINARY ac.platform = BINARY ad_metrics.platform
+       AND BINARY ac.external_campaign_id = BINARY ad_metrics.campaign_id
+      JOIN app_ad_campaign_map m
+        ON m.ad_campaign_id = ac.id
+      JOIN apps a
+        ON a.id = m.app_id
     `);
-    conditions.push("BINARY cam.app_key = BINARY ?");
+    conditions.push("BINARY a.app_key = BINARY ?");
     params.push(appKey);
   }
 
@@ -149,13 +165,15 @@ async function getAdsDailyTrend(startDate, endDate, platform = null, appKey = nu
 
   if (appKey) {
     joins.push(`
-      JOIN campaign_app_mapping cam
-        ON BINARY cam.platform = BINARY ad_metrics.platform
-       AND BINARY cam.campaign_id = BINARY ad_metrics.campaign_id
-       AND (cam.valid_from IS NULL OR ad_metrics.metric_date >= cam.valid_from)
-       AND (cam.valid_to IS NULL OR ad_metrics.metric_date <= cam.valid_to)
+      JOIN ad_campaigns ac
+        ON BINARY ac.platform = BINARY ad_metrics.platform
+       AND BINARY ac.external_campaign_id = BINARY ad_metrics.campaign_id
+      JOIN app_ad_campaign_map m
+        ON m.ad_campaign_id = ac.id
+      JOIN apps a
+        ON a.id = m.app_id
     `);
-    conditions.push("BINARY cam.app_key = BINARY ?");
+    conditions.push("BINARY a.app_key = BINARY ?");
     params.push(appKey);
   }
 

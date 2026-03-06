@@ -40,7 +40,11 @@ function buildRequestUrl(path) {
   return new URL(normalizedPath, normalizedBase);
 }
 
-function requestRevenueCat(path) {
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function requestRevenueCat(path, attempt = 1) {
   if (!RC_API_KEY) {
     throw new Error("REVENUECAT_API_KEY is not configured");
   }
@@ -77,6 +81,10 @@ function requestRevenueCat(path) {
           }
 
           if (res.statusCode < 200 || res.statusCode >= 300) {
+            if (res.statusCode === 429 && attempt < 3) {
+              const backoffMs = Number(parsed?.backoff_ms) || 20000;
+              return delay(backoffMs).then(() => requestRevenueCat(path, attempt + 1)).then(resolve).catch(reject);
+            }
             return reject(
               new Error(
                 `RevenueCat request failed (${res.statusCode}) for ${url.pathname}${url.search}: ${JSON.stringify(

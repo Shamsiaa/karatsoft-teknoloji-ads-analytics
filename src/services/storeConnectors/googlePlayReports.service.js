@@ -293,7 +293,7 @@ async function syncGooglePlayRevenueForDate(appKey, date) {
     "google_play",
     "USD",
     "google_play_report_api",
-    { packageName },
+    { packageName, targetDate: date },
   );
   logger.info("google_play_reports.imported", {
     appKey,

@@ -4,6 +4,7 @@ const storeRevenueRepo = require("../db/storeRevenue.repository");
 const { importStoreCsv } = require("../services/storeRevenueCsv.service");
 const { syncAppStoreRevenueForDate } = require("../services/storeConnectors/appStoreConnect.service");
 const { syncGooglePlayRevenueForDate } = require("../services/storeConnectors/googlePlayReports.service");
+const { syncExchangeRateForDate } = require("../services/exchangeRates.service");
 
 function isValidDate(date) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -145,6 +146,8 @@ async function syncStoreRevenue(req, res) {
     const date = req.query.date || req.body?.date;
     const appKey = req.query.appKey || req.body?.appKey;
     const store = (req.query.store || req.body?.store || "all").toLowerCase();
+    const syncExchangeRates = String(req.query.syncExchangeRates || req.body?.syncExchangeRates || "true").toLowerCase();
+    const fxCurrency = String(req.query.fxCurrency || req.body?.fxCurrency || process.env.EXCHANGE_RATE_TARGET_CURRENCY || "USD").toUpperCase();
 
     if (!appKey || !date) {
       return res.status(400).json({ error: "appKey and date are required (YYYY-MM-DD)" });
@@ -165,12 +168,29 @@ async function syncStoreRevenue(req, res) {
     if (store === "google_play" || store === "all") {
       results.push(await syncGooglePlayRevenueForDate(appKey, date));
     }
+    if (syncExchangeRates === "true" || syncExchangeRates === "1") {
+      try {
+        results.push({
+          store: "exchange_rates",
+          ...(await syncExchangeRateForDate(date, fxCurrency)),
+        });
+      } catch (error) {
+        results.push({
+          store: "exchange_rates",
+          success: false,
+          error: error.message,
+          targetCurrency: fxCurrency,
+        });
+      }
+    }
 
     return res.json({
       success: true,
       appKey,
       date,
       store,
+      syncExchangeRates: syncExchangeRates === "true" || syncExchangeRates === "1",
+      fxCurrency,
       results,
     });
   } catch (error) {
@@ -184,6 +204,8 @@ async function syncStoreRevenueRange(req, res) {
     const endDate = req.query.endDate || req.body?.endDate;
     const appKey = req.query.appKey || req.body?.appKey;
     const store = (req.query.store || req.body?.store || "all").toLowerCase();
+    const syncExchangeRates = String(req.query.syncExchangeRates || req.body?.syncExchangeRates || "true").toLowerCase();
+    const fxCurrency = String(req.query.fxCurrency || req.body?.fxCurrency || process.env.EXCHANGE_RATE_TARGET_CURRENCY || "USD").toUpperCase();
 
     if (!appKey || !startDate || !endDate) {
       return res.status(400).json({ error: "appKey, startDate and endDate are required (YYYY-MM-DD)" });
@@ -237,6 +259,22 @@ async function syncStoreRevenueRange(req, res) {
         }
       }
 
+      if (syncExchangeRates === "true" || syncExchangeRates === "1") {
+        try {
+          dayResult.stores.push({
+            store: "exchange_rates",
+            ...(await syncExchangeRateForDate(date, fxCurrency)),
+          });
+        } catch (error) {
+          dayResult.stores.push({
+            store: "exchange_rates",
+            success: false,
+            error: error.message,
+            targetCurrency: fxCurrency,
+          });
+        }
+      }
+
       results.push(dayResult);
     }
 
@@ -246,6 +284,8 @@ async function syncStoreRevenueRange(req, res) {
       startDate,
       endDate,
       store,
+      syncExchangeRates: syncExchangeRates === "true" || syncExchangeRates === "1",
+      fxCurrency,
       syncedDays: dates.length,
       results,
     });

@@ -85,7 +85,14 @@ function downloadAppStoreReport(date) {
 
 async function syncAppStoreRevenueForDate(appKey, date) {
   const reportText = await downloadAppStoreReport(date);
-  const result = await importStoreCsv(appKey, reportText, "app_store", "USD", "app_store_connect_api");
+  const result = await importStoreCsv(
+    appKey,
+    reportText,
+    "app_store",
+    "USD",
+    "app_store_connect_api",
+    { targetDate: date },
+  );
   return {
     appKey,
     date,

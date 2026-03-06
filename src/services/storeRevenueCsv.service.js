@@ -82,9 +82,55 @@ function normalizeDate(v) {
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
+  const ymdSlash = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (ymdSlash) {
+    const year = Number(ymdSlash[1]);
+    const month = Number(ymdSlash[2]);
+    const day = Number(ymdSlash[3]);
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  const mdySlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdySlash) {
+    const month = Number(mdySlash[1]);
+    const day = Number(mdySlash[2]);
+    const year = Number(mdySlash[3]);
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  const m = s.match(/^([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})$/);
+  if (m) {
+    const monthMap = {
+      jan: 1, january: 1,
+      feb: 2, february: 2,
+      mar: 3, march: 3,
+      apr: 4, april: 4,
+      may: 5,
+      jun: 6, june: 6,
+      jul: 7, july: 7,
+      aug: 8, august: 8,
+      sep: 9, sept: 9, september: 9,
+      oct: 10, october: 10,
+      nov: 11, november: 11,
+      dec: 12, december: 12,
+    };
+    const month = monthMap[m[1].toLowerCase()];
+    const day = Number(m[2]);
+    const year = Number(m[3]);
+    if (month && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString().slice(0, 10);
+}
+
+function extractMetricDate(row) {
+  return normalizeDate(
+    pickValue(row, ["metric_date", "date", "Begin Date", "End Date", "Transaction Date", "Transaction date"]),
+  );
 }
 
 function shouldWriteSummary() {
@@ -114,6 +160,7 @@ function normalizeRawLine(row, store, fallbackCurrency = "USD", options = {}) {
     pickValue(row, ["metric_date", "date", "Begin Date", "End Date", "Transaction Date", "Transaction date"]),
   );
   if (!metricDate) return null;
+  if (options.targetDate && metricDate !== options.targetDate) return null;
 
   const grossAmount = asNumber(
     pickValue(row, ["gross_revenue", "Gross Revenue", "Customer Price", "Amount (Buyer Currency)", "Amount (buyer currency)"]),
@@ -154,6 +201,7 @@ function normalizeRow(row, store, fallbackCurrency = "USD", options = {}) {
     pickValue(row, ["metric_date", "date", "Begin Date", "End Date", "Transaction Date", "Transaction date"]),
   );
   if (!metricDate) return null;
+  if (options.targetDate && metricDate !== options.targetDate) return null;
 
   const grossRevenue = asNumber(
     pickValue(row, ["gross_revenue", "Gross Revenue", "Customer Price", "Amount (Buyer Currency)", "Amount (buyer currency)"]),
@@ -207,11 +255,17 @@ async function importStoreCsv(appKey, csvText, store, currency = "USD", source =
   const parsed = parseCsv(csvText);
   const normalizedForSummary = [];
   let acceptedRawLines = 0;
+  const parsedDates = new Set();
+  const matchedDates = new Set();
 
   for (const parsedRow of parsed) {
+    const extractedDate = extractMetricDate(parsedRow);
+    if (extractedDate) parsedDates.add(extractedDate);
+
     const rawLine = normalizeRawLine(parsedRow, store, currency, options);
     if (rawLine) {
       acceptedRawLines += 1;
+      matchedDates.add(rawLine.metricDate);
       await storeRevenueRepo.insertStoreRevenueLine({
         appKey,
         store,
@@ -264,6 +318,11 @@ async function importStoreCsv(appKey, csvText, store, currency = "USD", source =
     skipped: parsed.length - acceptedRawLines,
     rawLines: parsed.length,
     summaryWritten: shouldWriteSummary(),
+    debug: {
+      targetDate: options.targetDate || null,
+      parsedDates: [...parsedDates].sort(),
+      matchedDates: [...matchedDates].sort(),
+    },
   };
 }
 

@@ -167,14 +167,16 @@ async function getCampaignsMetrics(startDate, endDate, options = {}) {
     const reportData = await getCampaignsReport(reportParams);
     const metrics = extractMetrics(reportData);
 
-    // ✅ Log each metric in UTC
-    metrics.forEach((m) => {
-      const utcDate = m.date;
-      const localDate = new Date(utcDate).toString();
-      console.log(
-        `Campaign ${m.campaignName} | UTC: ${utcDate} | Local: ${localDate} | Taps: ${m.taps} | Spend: ${m.spend}`,
-      );
-    });
+    const debugLogs = String(process.env.APPLE_ADS_DEBUG_LOGS || "false").toLowerCase();
+    if (debugLogs === "true" || debugLogs === "1") {
+      metrics.forEach((m) => {
+        const utcDate = m.date;
+        const localDate = utcDate ? new Date(`${utcDate}T00:00:00Z`).toString() : "n/a";
+        console.log(
+          `Campaign ${m.campaignName} | UTC: ${utcDate || "n/a"} | Local: ${localDate} | Taps: ${m.taps} | Spend: ${m.spend}`,
+        );
+      });
+    }
 
     if (options.debug) {
       return { metrics, rawResponse: reportData };

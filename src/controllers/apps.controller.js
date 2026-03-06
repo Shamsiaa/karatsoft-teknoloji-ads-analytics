@@ -51,18 +51,30 @@ async function listMappings(req, res) {
   }
 }
 
+async function listAdCampaigns(req, res) {
+  try {
+    const platform = req.query.platform || null;
+    const data = await mappingRepo.listAdCampaigns(platform);
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to list ad campaigns", message: error.message });
+  }
+}
+
 async function upsertMapping(req, res) {
   try {
-    const { platform, campaignId, appKey, validFrom, validTo } = req.body || {};
+    const { platform, campaignId, appKey, campaignName, appId, adCampaignId } = req.body || {};
+
+    if (appId && adCampaignId) {
+      await mappingRepo.upsertMappingByIds(appId, adCampaignId);
+      return res.json({ success: true });
+    }
+
     if (!platform || !campaignId || !appKey) {
-      return res.status(400).json({ error: "platform, campaignId and appKey are required" });
+      return res.status(400).json({ error: "Either (appId, adCampaignId) or (platform, campaignId, appKey) are required" });
     }
 
-    if ((validFrom && !isValidDate(validFrom)) || (validTo && !isValidDate(validTo))) {
-      return res.status(400).json({ error: "validFrom/validTo must be YYYY-MM-DD" });
-    }
-
-    await mappingRepo.upsertMapping({ platform, campaignId, appKey, validFrom, validTo });
+    await mappingRepo.upsertMapping({ platform, campaignId, appKey, campaignName: campaignName || null });
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: "Failed to upsert campaign mapping", message: error.message });
@@ -332,6 +344,7 @@ module.exports = {
   listApps,
   upsertApp,
   listMappings,
+  listAdCampaigns,
   upsertMapping,
   importStoreRevenue,
   importAppStoreCsv,

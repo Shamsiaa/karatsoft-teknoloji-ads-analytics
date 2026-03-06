@@ -3,6 +3,7 @@ const {
   listApps,
   upsertApp,
   listMappings,
+  listAdCampaigns,
   upsertMapping,
   importStoreRevenue,
   importAppStoreCsv,
@@ -18,6 +19,7 @@ router.get("/", listApps);
 router.post("/", upsertApp);
 
 router.get("/campaign-mappings", listMappings);
+router.get("/ad-campaigns", listAdCampaigns);
 router.post("/campaign-mappings", upsertMapping);
 
 router.post("/store-revenue/import", importStoreRevenue);

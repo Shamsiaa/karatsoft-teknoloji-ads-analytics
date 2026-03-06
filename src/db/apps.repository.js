@@ -4,6 +4,7 @@ async function listApps() {
   const [rows] = await pool.query(
     `
       SELECT
+        id,
         app_key AS appKey,
         app_name AS appName,
         ios_bundle_id AS iosBundleId,
@@ -63,6 +64,7 @@ async function getAppByKey(appKey) {
   const [rows] = await pool.query(
     `
       SELECT
+        id,
         app_key AS appKey,
         app_name AS appName,
         ios_bundle_id AS iosBundleId,

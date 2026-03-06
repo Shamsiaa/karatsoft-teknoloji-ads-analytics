@@ -131,12 +131,18 @@ function TrendCard({ title, series, keyName }) {
 }
 
 export default function App() {
+  const [activePage, setActivePage] = useState("dashboard");
   const [rangePreset, setRangePreset] = useState("30d");
   const [rangeMode, setRangeMode] = useState("preset");
   const initialPresetRange = getRangeFromPreset("30d");
   const [customStartDate, setCustomStartDate] = useState(initialPresetRange.startDate);
   const [customEndDate, setCustomEndDate] = useState(initialPresetRange.endDate);
   const [platform, setPlatform] = useState("all");
+  const [appFilter, setAppFilter] = useState("all");
+  const [apps, setApps] = useState([]);
+  const [adCampaigns, setAdCampaigns] = useState([]);
+  const [campaignMapSelection, setCampaignMapSelection] = useState({});
+  const [mappingBusyId, setMappingBusyId] = useState(null);
   const [sortKey, setSortKey] = useState("cost");
   const [sortDir, setSortDir] = useState("desc");
   const [adsRows, setAdsRows] = useState([]);
@@ -146,6 +152,35 @@ export default function App() {
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadApps() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/apps`);
+        if (!res.ok) throw new Error(`apps failed: ${res.status}`);
+        const data = await res.json();
+        setApps(Array.isArray(data) ? data : []);
+      } catch (e) {
+        debugLog("apps.load.error", { message: e?.message });
+      }
+    }
+    loadApps();
+  }, []);
+
+  useEffect(() => {
+    async function loadAdCampaigns() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/apps/ad-campaigns`);
+        if (!res.ok) throw new Error(`ad-campaigns failed: ${res.status}`);
+        const data = await res.json();
+        const rows = Array.isArray(data) ? data : [];
+        setAdCampaigns(rows);
+      } catch (e) {
+        debugLog("ad-campaigns.load.error", { message: e?.message });
+      }
+    }
+    loadAdCampaigns();
+  }, []);
 
   const range = useMemo(() => {
     if (rangeMode === "custom") {
@@ -171,20 +206,24 @@ export default function App() {
         adsUrl.searchParams.set("startDate", range.startDate);
         adsUrl.searchParams.set("endDate", range.endDate);
         if (platform !== "all") adsUrl.searchParams.set("platform", platform);
+        if (appFilter !== "all") adsUrl.searchParams.set("appKey", appFilter);
 
         const trendUrl = new URL(`${API_BASE_URL}/api/ads-report/trend`);
         trendUrl.searchParams.set("startDate", range.startDate);
         trendUrl.searchParams.set("endDate", range.endDate);
         if (platform !== "all") trendUrl.searchParams.set("platform", platform);
+        if (appFilter !== "all") trendUrl.searchParams.set("appKey", appFilter);
 
         const prevAdsUrl = new URL(`${API_BASE_URL}/api/ads-report`);
         prevAdsUrl.searchParams.set("startDate", prevRange.startDate);
         prevAdsUrl.searchParams.set("endDate", prevRange.endDate);
         if (platform !== "all") prevAdsUrl.searchParams.set("platform", platform);
+        if (appFilter !== "all") prevAdsUrl.searchParams.set("appKey", appFilter);
 
         const platformRevenueRawUrl = new URL(`${API_BASE_URL}/api/revenue-report/platform-revenue-raw`);
         platformRevenueRawUrl.searchParams.set("startDate", range.startDate);
         platformRevenueRawUrl.searchParams.set("endDate", range.endDate);
+        if (appFilter !== "all") platformRevenueRawUrl.searchParams.set("appKey", appFilter);
 
         const schedulerUrl = `${API_BASE_URL}/api/system/scheduler-status`;
 
@@ -222,6 +261,7 @@ export default function App() {
           rows: currentRows.length,
           trendRows: Array.isArray(trendData) ? trendData.length : 0,
           rawRevenueMathMode: platformRevenueRawData?.mathMode,
+          appFilter,
         });
       } catch (e) {
         debugLog("load.error", { message: e?.message });
@@ -232,7 +272,7 @@ export default function App() {
     }
 
     load();
-  }, [customEndDate, customStartDate, platform, range.endDate, range.startDate, rangeMode]);
+  }, [appFilter, customEndDate, customStartDate, platform, range.endDate, range.startDate, rangeMode]);
 
   const tableRows = useMemo(
     () =>
@@ -289,14 +329,67 @@ export default function App() {
     return sortDir === "asc" ? "↑" : "↓";
   }
 
+  async function mapCampaignToApp(adCampaignId) {
+    const selectedAppKey = campaignMapSelection[adCampaignId];
+    if (!selectedAppKey) return;
+    const app = apps.find((a) => a.appKey === selectedAppKey);
+    if (!app?.id) {
+      setError("Seçilen uygulama bulunamadı.");
+      return;
+    }
+
+    try {
+      setMappingBusyId(adCampaignId);
+      setError("");
+      const res = await fetch(`${API_BASE_URL}/api/apps/campaign-mappings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appId: app.id,
+          adCampaignId,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message || `campaign mapping failed: ${res.status}`);
+      }
+
+      const refreshed = await fetch(`${API_BASE_URL}/api/apps/ad-campaigns`);
+      if (refreshed.ok) {
+        const data = await refreshed.json();
+        setAdCampaigns(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      setError(e.message || "Kampanya eşleştirme başarısız");
+    } finally {
+      setMappingBusyId(null);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Reklam Analitik Paneli
-          </h1>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Reklam Analitik Paneli
+            </h1>
+            <button
+              className={`rounded-lg border px-3 py-2 text-sm ${activePage === "dashboard" ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-700"}`}
+              onClick={() => setActivePage("dashboard")}
+            >
+              Dashboard
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2 text-sm ${activePage === "mapping" ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-700"}`}
+              onClick={() => setActivePage("mapping")}
+            >
+              Kampanya Eşleştirme
+            </button>
+          </div>
+
+          {activePage === "dashboard" ? (
+            <div className="flex flex-wrap gap-3">
             <select
               className="rounded-lg border bg-white px-4 py-2"
               value={rangeMode}
@@ -342,6 +435,19 @@ export default function App() {
               <option value="apple">Apple Search Ads</option>
             </select>
 
+            <select
+              className="rounded-lg border bg-white px-4 py-2"
+              value={appFilter}
+              onChange={(e) => setAppFilter(e.target.value)}
+            >
+              <option value="all">Tüm Uygulamalar</option>
+              {apps.map((app) => (
+                <option key={app.appKey} value={app.appKey}>
+                  {app.appName || app.appKey}
+                </option>
+              ))}
+            </select>
+
             <button
               className="rounded-lg bg-blue-600 px-4 py-2 text-white disabled:bg-blue-300"
               onClick={() => downloadCsv(tableRows)}
@@ -349,7 +455,8 @@ export default function App() {
             >
               CSV İndir
             </button>
-          </div>
+            </div>
+          ) : null}
         </div>
 
         {error ? (
@@ -357,8 +464,10 @@ export default function App() {
             {error}
           </div>
         ) : null}
-        {loading ? <LoadingSkeleton /> : null}
+        {loading && activePage === "dashboard" ? <LoadingSkeleton /> : null}
 
+        {activePage === "dashboard" ? (
+        <>
         <div className="mb-6 rounded-xl border bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm font-semibold text-gray-700">
             Platform Kırılımı
@@ -442,15 +551,19 @@ export default function App() {
             <h2 className="mb-3 text-lg font-semibold">Platform Bazlı Gelir</h2>
             {platformRevenueRaw ? (
               <>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <PlatformRevenueListCard
-                    title="Apple Revenue"
-                    items={platformRevenueRaw.apple}
-                  />
-                  <PlatformRevenueListCard
-                    title="Google Revenue"
-                    items={platformRevenueRaw.google}
-                  />
+                <div className={`grid gap-4 ${platform === "all" ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
+                  {(platform === "all" || platform === "apple") ? (
+                    <PlatformRevenueListCard
+                      title="Apple Revenue"
+                      items={platformRevenueRaw.apple}
+                    />
+                  ) : null}
+                  {(platform === "all" || platform === "google") ? (
+                    <PlatformRevenueListCard
+                      title="Google Revenue"
+                      items={platformRevenueRaw.google}
+                    />
+                  ) : null}
                 </div>
                 <p className="mt-3 text-xs text-gray-500">
                   Ham mağaza verisi (dönüşüm yok)
@@ -594,6 +707,78 @@ export default function App() {
             </table>
           </div>
         </div>
+        </>
+        ) : null}
+
+        {activePage === "mapping" ? (
+        <div className="mt-2 rounded-xl border bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold">Kampanya-Uygulama Eşleştirme</h2>
+          <p className="mb-4 text-sm text-gray-600">
+            Her reklam kampanyası yalnızca bir uygulamaya bağlanır. Eşleştirme sonrası uygulama filtresi ile giderler uygulama bazlı raporlanır.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b bg-gray-100">
+                  <th className="p-3">Platform</th>
+                  <th className="p-3">Campaign ID</th>
+                  <th className="p-3">Campaign Name</th>
+                  <th className="p-3">Bağlı Uygulama</th>
+                  <th className="p-3">Eşleştir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adCampaigns.map((row) => {
+                  const selectedValue = campaignMapSelection[row.adCampaignId] || row.appKey || "";
+                  const isSameMapping = selectedValue && selectedValue === (row.appKey || "");
+                  return (
+                    <tr key={`${row.platform}-${row.adCampaignId}`} className="border-b">
+                      <td className="p-3">{row.platform}</td>
+                      <td className="p-3">{row.campaignId}</td>
+                      <td className="p-3">{row.campaignName || "-"}</td>
+                      <td className="p-3">{row.appName || row.appKey || "Bağlı değil"}</td>
+                      <td className="p-3">
+                        <div className="flex gap-2">
+                          <select
+                            className="rounded border bg-white px-2 py-1"
+                            value={selectedValue}
+                            onChange={(e) =>
+                              setCampaignMapSelection((prev) => ({
+                                ...prev,
+                                [row.adCampaignId]: e.target.value,
+                              }))}
+                          >
+                            <option value="">Uygulama seç</option>
+                            {apps.map((app) => (
+                              <option key={app.appKey} value={app.appKey}>
+                                {app.appName || app.appKey}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="rounded bg-blue-600 px-3 py-1 text-white disabled:bg-blue-300"
+                            onClick={() => mapCampaignToApp(row.adCampaignId)}
+                            disabled={!selectedValue || mappingBusyId === row.adCampaignId || isSameMapping}
+                          >
+                            {mappingBusyId === row.adCampaignId ? "Kaydediliyor..." : "Kaydet"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!adCampaigns.length ? (
+                  <tr>
+                    <td className="p-3 text-gray-500" colSpan={5}>
+                      Henüz kampanya kaydı yok. Önce ads sync çalıştırın.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        ) : null}
       </div>
     </div>
   );

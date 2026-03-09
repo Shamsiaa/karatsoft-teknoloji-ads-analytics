@@ -1,7 +1,6 @@
 const {
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
-  syncRevenueCatForDate,
 } = require("../services/adsReport.service");
 const { syncStoreRevenueForDate } = require("../services/storeRevenueSync.service");
 const { syncExchangeRateForDate } = require("../services/exchangeRates.service");
@@ -75,7 +74,6 @@ function* iterateDatesDesc(startDate, endDate) {
 async function runSourcesForDate(
   date,
   {
-    includeRevenueCat = true,
     includeStoreRevenue = true,
     includeExchangeRates = true,
     exchangeTargetCurrency = "USD",
@@ -103,19 +101,6 @@ async function runSourcesForDate(
       success: false,
       error: error.message,
     });
-  }
-
-  if (includeRevenueCat) {
-    try {
-      const revenueResult = await syncRevenueCatForDate(date);
-      results.push({ source: "revenuecat", success: true, ...revenueResult });
-    } catch (error) {
-      results.push({
-        source: "revenuecat",
-        success: false,
-        error: error.message,
-      });
-    }
   }
 
   if (includeStoreRevenue) {
@@ -156,14 +141,12 @@ async function runDailySync(date = getYesterdayUtcDate()) {
 
   isSyncRunning = true;
   lastRunStartedAt = new Date().toISOString();
-  const includeRevenueCat = true;
   const includeStoreRevenue = isEnabledFlag("DAILY_STORE_REVENUE_SYNC_ENABLED", "false");
   const includeExchangeRates = isEnabledFlag("DAILY_EXCHANGE_RATE_SYNC_ENABLED", "true");
   const exchangeTargetCurrency = String(process.env.EXCHANGE_RATE_TARGET_CURRENCY || "USD").toUpperCase();
 
   try {
     const results = await runSourcesForDate(date, {
-      includeRevenueCat,
       includeStoreRevenue,
       includeExchangeRates,
       exchangeTargetCurrency,
@@ -198,7 +181,6 @@ async function runHistoricalBackfill() {
 
   const endDate = process.env.HISTORICAL_BACKFILL_END_DATE || "2025-01-01";
   const startDate = process.env.HISTORICAL_BACKFILL_START_DATE || getTodayUtcDate();
-  const includeRevenueCat = isEnabledFlag("HISTORICAL_BACKFILL_INCLUDE_REVENUECAT", "false");
   const includeStoreRevenue = isEnabledFlag("HISTORICAL_BACKFILL_INCLUDE_STORE_REVENUE", "true");
   const includeExchangeRates = isEnabledFlag("HISTORICAL_BACKFILL_INCLUDE_EXCHANGE_RATES", "true");
   const exchangeTargetCurrency = String(process.env.EXCHANGE_RATE_TARGET_CURRENCY || "USD").toUpperCase();
@@ -228,7 +210,6 @@ async function runHistoricalBackfill() {
       if (count >= maxDays) break;
       backfillStatus.currentDate = date;
       const results = await runSourcesForDate(date, {
-        includeRevenueCat,
         includeStoreRevenue,
         includeExchangeRates,
         exchangeTargetCurrency,
@@ -243,7 +224,6 @@ async function runHistoricalBackfill() {
       startDate,
       endDate,
       processedDays: backfillStatus.processedDays,
-      includeRevenueCat,
       includeStoreRevenue,
       includeExchangeRates,
       exchangeTargetCurrency,

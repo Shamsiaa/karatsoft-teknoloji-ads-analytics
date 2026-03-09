@@ -2,6 +2,7 @@ const express = require("express");
 const { getDailyFetchStatus, runHistoricalBackfill } = require("../jobs/dailyFetch.job");
 const { syncExchangeRateForDate } = require("../services/exchangeRates.service");
 const exchangeRatesRepo = require("../db/exchangeRates.repository");
+const { runSyncAllNow } = require("../services/systemSync.service");
 
 const router = express.Router();
 
@@ -37,6 +38,22 @@ router.post("/exchange-rates/sync", async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: "Failed to sync exchange rate",
+      message: error.message,
+    });
+  }
+});
+
+// POST /api/system/sync/all
+router.post("/sync/all", async (req, res) => {
+  try {
+    const result = await runSyncAllNow();
+    if (result?.skipped && result?.reason === "already_running") {
+      return res.status(409).json(result);
+    }
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({
+      error: "Failed to run sync all",
       message: error.message,
     });
   }

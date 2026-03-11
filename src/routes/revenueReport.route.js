@@ -5,6 +5,7 @@ const {
   getPlatformComparison,
   getPlatformComparisonNormalized,
   getPlatformRevenueRaw,
+  getRevenueCoverage,
 } = require("../controllers/revenueReport.controller");
 
 // GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=...]
@@ -18,5 +19,8 @@ router.get("/platform-compare-normalized", getPlatformComparisonNormalized);
 
 // GET /api/revenue-report/platform-revenue-raw?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=...]
 router.get("/platform-revenue-raw", getPlatformRevenueRaw);
+
+// GET /api/revenue-report/coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=...]
+router.get("/coverage", getRevenueCoverage);
 
 module.exports = router;

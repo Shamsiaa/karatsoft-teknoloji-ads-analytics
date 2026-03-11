@@ -1,12 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const { getReport, getTrend, getLiveReport, syncReport } = require("../controllers/adsReport.controller");
+const { getReport, getTrend, getLiveReport, syncReport, getCoverage } = require("../controllers/adsReport.controller");
 
 // GET /api/ads-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&platform=apple|google
 router.get("/", getReport);
 
 // GET /api/ads-report/trend?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&platform=apple|google
 router.get("/trend", getTrend);
+
+// GET /api/ads-report/coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&platform=apple|google[&appKey=...]
+router.get("/coverage", getCoverage);
 
 // GET /api/ads-report/live?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&platform=apple|google
 router.get("/live", getLiveReport);

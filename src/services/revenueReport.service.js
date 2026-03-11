@@ -288,9 +288,31 @@ async function getPlatformRevenueRawByCurrency(startDate, endDate, appKey = null
   };
 }
 
+async function getStoreRevenueCoverage(startDate, endDate, appKey = null) {
+  const rows = await storeRevenueRepo.getStoreRevenueCoverage(startDate, endDate, appKey);
+
+  const byStore = {
+    app_store: null,
+    google_play: null,
+  };
+
+  for (const row of rows) {
+    if (row.store === "app_store") byStore.app_store = row;
+    if (row.store === "google_play") byStore.google_play = row;
+  }
+
+  return {
+    startDate,
+    endDate,
+    appKey,
+    stores: byStore,
+  };
+}
+
 module.exports = {
   getSpendRevenueComparison,
   getPlatformSpendRevenueComparison,
   getPlatformSpendRevenueComparisonNormalized,
   getPlatformRevenueRawByCurrency,
+  getStoreRevenueCoverage,
 };

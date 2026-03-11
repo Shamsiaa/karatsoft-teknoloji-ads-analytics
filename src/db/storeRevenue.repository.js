@@ -267,6 +267,41 @@ async function getRawRevenueByStoreCurrency(startDate, endDate, appKey = null) {
   }));
 }
 
+async function getStoreRevenueCoverage(startDate, endDate, appKey = null) {
+  const conditions = ["metric_date BETWEEN ? AND ?"];
+  const params = [startDate, endDate];
+
+  if (appKey) {
+    conditions.push("app_key = ?");
+    params.push(appKey);
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT
+        store,
+        MIN(metric_date) AS minDate,
+        MAX(metric_date) AS maxDate,
+        COUNT(DISTINCT metric_date) AS daysWithData,
+        COUNT(*) AS rowCount,
+        COUNT(DISTINCT currency) AS currencyCount
+      FROM store_revenue_lines
+      WHERE ${conditions.join(" AND ")}
+      GROUP BY store
+    `,
+    params,
+  );
+
+  return rows.map((r) => ({
+    store: r.store,
+    minDate: r.minDate ? new Date(r.minDate).toISOString().slice(0, 10) : null,
+    maxDate: r.maxDate ? new Date(r.maxDate).toISOString().slice(0, 10) : null,
+    daysWithData: Number(r.daysWithData) || 0,
+    rowCount: Number(r.rowCount) || 0,
+    currencyCount: Number(r.currencyCount) || 0,
+  }));
+}
+
 module.exports = {
   upsertStoreRevenueMetric,
   insertStoreRevenueLine,
@@ -275,4 +310,5 @@ module.exports = {
   getNetRevenueByStoreCurrency,
   listStoreRevenueLines,
   getRawRevenueByStoreCurrency,
+  getStoreRevenueCoverage,
 };

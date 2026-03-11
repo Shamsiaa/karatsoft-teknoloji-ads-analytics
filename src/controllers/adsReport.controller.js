@@ -5,6 +5,7 @@ const {
   syncAppleAdsForDate,
   syncGoogleAdsForDate,
 } = require("../services/adsReport.service");
+const adMetricsRepo = require("../db/adMetrics.repository");
 
 function isValidDate(date) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -18,6 +19,13 @@ function* iterateDates(startDate, endDate) {
     yield current.toISOString().slice(0, 10);
     current.setUTCDate(current.getUTCDate() + 1);
   }
+}
+
+function getExpectedDays(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const diff = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
+  return Math.max(diff, 0);
 }
 
 /**
@@ -47,6 +55,52 @@ async function getReport(req, res) {
     console.error("Error in ads-report:", err);
     return res.status(500).json({
       error: "Failed to get ads report",
+      message: err.message,
+    });
+  }
+}
+
+/**
+ * GET /api/ads-report/coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&platform=apple|google[&appKey=...]
+ * Returns coverage summary for ad_metrics in DB.
+ */
+async function getCoverage(req, res) {
+  try {
+    const { startDate, endDate, platform, appKey } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: "startDate and endDate query parameters are required (format: YYYY-MM-DD)",
+      });
+    }
+
+    if (!isValidDate(startDate) || !isValidDate(endDate)) {
+      return res.status(400).json({
+        error: "Invalid date format. Expected YYYY-MM-DD",
+      });
+    }
+
+    const expectedDays = getExpectedDays(startDate, endDate);
+    const coverage = await adMetricsRepo.getAdsCoverage(
+      startDate,
+      endDate,
+      platform || null,
+      appKey || null,
+    );
+
+    return res.json({
+      startDate,
+      endDate,
+      platform: platform || "all",
+      appKey: appKey || null,
+      expectedDays,
+      missingDays: Math.max(expectedDays - (coverage.daysWithData || 0), 0),
+      ...coverage,
+    });
+  } catch (err) {
+    console.error("Error in ads-report coverage:", err);
+    return res.status(500).json({
+      error: "Failed to get ads coverage",
       message: err.message,
     });
   }
@@ -208,4 +262,5 @@ module.exports = {
   getTrend,
   getLiveReport,
   syncReport,
+  getCoverage,
 };

@@ -42,10 +42,10 @@ function formatNumber(value) {
   return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(value || 0);
 }
 
-function formatCurrency(value) {
+function formatCurrency(value, currencyCode = "USD") {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
-    currency: "USD",
+    currency: currencyCode,
     maximumFractionDigits: 2,
   }).format(value || 0);
 }
@@ -60,6 +60,12 @@ function formatCurrencyCode(value, currencyCode) {
   } catch (_err) {
     return `${formatNumber(value)} ${currencyCode || "UNK"}`;
   }
+}
+
+function getPlatformCurrency(platform) {
+  if (platform === "google") return "TRY";
+  if (platform === "apple") return "USD";
+  return "USD";
 }
 
 function percentChange(current, previous) {
@@ -149,6 +155,8 @@ export default function App() {
   const [trendRows, setTrendRows] = useState([]);
   const [previousTotals, setPreviousTotals] = useState(null);
   const [platformRevenueRaw, setPlatformRevenueRaw] = useState(null);
+  const [adsCoverage, setAdsCoverage] = useState(null);
+  const [revenueCoverage, setRevenueCoverage] = useState(null);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -225,13 +233,26 @@ export default function App() {
         platformRevenueRawUrl.searchParams.set("endDate", range.endDate);
         if (appFilter !== "all") platformRevenueRawUrl.searchParams.set("appKey", appFilter);
 
+        const adsCoverageUrl = new URL(`${API_BASE_URL}/api/ads-report/coverage`);
+        adsCoverageUrl.searchParams.set("startDate", range.startDate);
+        adsCoverageUrl.searchParams.set("endDate", range.endDate);
+        if (platform !== "all") adsCoverageUrl.searchParams.set("platform", platform);
+        if (appFilter !== "all") adsCoverageUrl.searchParams.set("appKey", appFilter);
+
+        const revenueCoverageUrl = new URL(`${API_BASE_URL}/api/revenue-report/coverage`);
+        revenueCoverageUrl.searchParams.set("startDate", range.startDate);
+        revenueCoverageUrl.searchParams.set("endDate", range.endDate);
+        if (appFilter !== "all") revenueCoverageUrl.searchParams.set("appKey", appFilter);
+
         const schedulerUrl = `${API_BASE_URL}/api/system/scheduler-status`;
 
-        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, schedulerRes] = await Promise.all([
+        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, adsCoverageRes, revenueCoverageRes, schedulerRes] = await Promise.all([
           fetch(adsUrl),
           fetch(trendUrl),
           fetch(prevAdsUrl),
           fetch(platformRevenueRawUrl),
+          fetch(adsCoverageUrl),
+          fetch(revenueCoverageUrl),
           fetch(schedulerUrl),
         ]);
 
@@ -239,13 +260,17 @@ export default function App() {
         if (!trendRes.ok) throw new Error(`ads-report trend failed: ${trendRes.status}`);
         if (!prevAdsRes.ok) throw new Error(`previous ads-report failed: ${prevAdsRes.status}`);
         if (!platformRevenueRawRes.ok) throw new Error(`platform-revenue-raw failed: ${platformRevenueRawRes.status}`);
+        if (!adsCoverageRes.ok) throw new Error(`ads-coverage failed: ${adsCoverageRes.status}`);
+        if (!revenueCoverageRes.ok) throw new Error(`revenue-coverage failed: ${revenueCoverageRes.status}`);
         if (!schedulerRes.ok) throw new Error(`scheduler-status failed: ${schedulerRes.status}`);
 
-        const [adsData, trendData, prevAdsData, platformRevenueRawData, schedulerData] = await Promise.all([
+        const [adsData, trendData, prevAdsData, platformRevenueRawData, adsCoverageData, revenueCoverageData, schedulerData] = await Promise.all([
           adsRes.json(),
           trendRes.json(),
           prevAdsRes.json(),
           platformRevenueRawRes.json(),
+          adsCoverageRes.json(),
+          revenueCoverageRes.json(),
           schedulerRes.json(),
         ]);
 
@@ -256,6 +281,8 @@ export default function App() {
         setTrendRows(Array.isArray(trendData) ? trendData : []);
         setPreviousTotals(sumTotals(previousRows));
         setPlatformRevenueRaw(platformRevenueRawData);
+        setAdsCoverage(adsCoverageData);
+        setRevenueCoverage(revenueCoverageData);
         setSchedulerStatus(schedulerData);
         debugLog("load.success", {
           rows: currentRows.length,
@@ -314,6 +341,7 @@ export default function App() {
 
   const cpc = totals.clicks > 0 ? totals.spend / totals.clicks : 0;
   const cpm = totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0;
+  const activeCurrency = getPlatformCurrency(platform);
 
   function onSort(nextKey) {
     if (sortKey === nextKey) {
@@ -485,7 +513,7 @@ export default function App() {
                 className={`rounded-full border px-3 py-1 text-sm ${platform === p.platform ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700"}`}
                 onClick={() => setPlatform(p.platform)}
               >
-                {p.platform} | {formatCurrency(p.spend)} harcama
+                {p.platform} | {formatCurrency(p.spend, getPlatformCurrency(p.platform))} harcama
               </button>
             ))}
           </div>
@@ -507,7 +535,7 @@ export default function App() {
           />
           <KpiCard
             label="Harcama"
-            value={formatCurrency(totals.spend)}
+            value={formatCurrency(totals.spend, activeCurrency)}
             delta={percentChange(totals.spend, previousTotals?.spend)}
           />
           <KpiCard
@@ -518,8 +546,21 @@ export default function App() {
               previousTotals?.conversions,
             )}
           />
-          <KpiCard label="CPC" value={formatCurrency(cpc)} />
-          <KpiCard label="CPM" value={formatCurrency(cpm)} />
+          <KpiCard label="CPC" value={formatCurrency(cpc, activeCurrency)} />
+          <KpiCard label="CPM" value={formatCurrency(cpm, activeCurrency)} />
+        </div>
+
+        <div className="mb-8 grid gap-6 lg:grid-cols-2">
+          <CoverageCard
+            title="Ads Veri Kapsamı (DB)"
+            coverage={adsCoverage}
+          />
+          <CoverageCard
+            title="Mağaza Geliri Veri Kapsamı (DB)"
+            coverage={revenueCoverage}
+            isRevenue
+            platform={platform}
+          />
         </div>
 
         <div className="mb-8 rounded-xl border bg-white p-4 text-sm text-gray-700 shadow-sm">
@@ -688,12 +729,12 @@ export default function App() {
                     <td className="p-3">{row.campaign || "-"}</td>
                     <td className="p-3">{formatNumber(row.clicks)}</td>
                     <td className="p-3">{formatNumber(row.impressions)}</td>
-                    <td className="p-3">{formatCurrency(row.cost)}</td>
+                    <td className="p-3">{formatCurrency(row.cost, getPlatformCurrency(row.platform))}</td>
                     <td className="p-3">
                       {formatNumber(Number(row.conversions) || 0)}
                     </td>
-                    <td className="p-3">{formatCurrency(row.cpc)}</td>
-                    <td className="p-3">{formatCurrency(row.cpm)}</td>
+                    <td className="p-3">{formatCurrency(row.cpc, getPlatformCurrency(row.platform))}</td>
+                    <td className="p-3">{formatCurrency(row.cpm, getPlatformCurrency(row.platform))}</td>
                   </tr>
                 ))}
                 {!sortedRows.length ? (
@@ -829,6 +870,75 @@ function PlatformRevenueListCard({ title, items }) {
           <p className="text-gray-500">Veri yok</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function CoverageCard({ title, coverage, isRevenue = false, platform = "all" }) {
+  if (!coverage) {
+    return (
+      <div className="rounded-xl border bg-white p-6 shadow-sm">
+        <h2 className="mb-3 text-lg font-semibold">{title}</h2>
+        <p className="text-sm text-gray-500">Veri kapsamı bulunamadı.</p>
+      </div>
+    );
+  }
+
+  if (!isRevenue) {
+    return (
+      <div className="rounded-xl border bg-white p-6 shadow-sm">
+        <h2 className="mb-3 text-lg font-semibold">{title}</h2>
+        <div className="space-y-1 text-sm text-gray-700">
+          <p>Seçili aralık: {coverage.startDate} - {coverage.endDate}</p>
+          <p>DB kapsamı: {coverage.minDate || "-"} - {coverage.maxDate || "-"}</p>
+          <p>Veri gün sayısı: {coverage.daysWithData} / {coverage.expectedDays}</p>
+          <p>Eksik gün: {coverage.missingDays}</p>
+          <p>Toplam satır: {coverage.rowCount}</p>
+          <p>Kampanya sayısı: {coverage.campaignCount}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const showApple = platform === "all" || platform === "apple";
+  const showGoogle = platform === "all" || platform === "google";
+
+  return (
+    <div className="rounded-xl border bg-white p-6 shadow-sm">
+      <h2 className="mb-3 text-lg font-semibold">{title}</h2>
+      <p className="mb-2 text-sm text-gray-700">
+        Seçili aralık: {coverage.startDate} - {coverage.endDate}
+      </p>
+      <div className="space-y-3 text-sm text-gray-700">
+        {showApple ? (
+          <CoverageStoreBlock label="Apple" data={coverage.stores?.app_store} />
+        ) : null}
+        {showGoogle ? (
+          <CoverageStoreBlock label="Google" data={coverage.stores?.google_play} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CoverageStoreBlock({ label, data }) {
+  if (!data) {
+    return (
+      <div className="rounded-lg border bg-gray-50 p-3">
+        <p className="font-semibold">{label}</p>
+        <p className="text-gray-500">Veri yok</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-gray-50 p-3">
+      <p className="font-semibold">{label}</p>
+      <p>DB kapsamı: {data.minDate || "-"} - {data.maxDate || "-"}</p>
+      <p>Veri gün sayısı: {data.daysWithData}</p>
+      <p>Eksik gün: {data.missingDays}</p>
+      <p>Toplam satır: {data.rowCount}</p>
+      <p>Para birimi sayısı: {data.currencyCount}</p>
     </div>
   );
 }

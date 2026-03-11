@@ -203,9 +203,61 @@ async function getAdsDailyTrend(startDate, endDate, platform = null, appKey = nu
   }));
 }
 
+async function getAdsCoverage(startDate, endDate, platform = null, appKey = null) {
+  const conditions = ["ad_metrics.metric_date BETWEEN ? AND ?"];
+  const params = [startDate, endDate];
+  const joins = [];
+
+  if (platform) {
+    conditions.push("ad_metrics.platform = ?");
+    params.push(platform);
+  }
+
+  if (appKey) {
+    joins.push(`
+      JOIN ad_campaigns ac
+        ON BINARY ac.platform = BINARY ad_metrics.platform
+       AND BINARY ac.external_campaign_id = BINARY ad_metrics.campaign_id
+      JOIN app_ad_campaign_map m
+        ON m.ad_campaign_id = ac.id
+      JOIN apps a
+        ON a.id = m.app_id
+    `);
+    conditions.push("BINARY a.app_key = BINARY ?");
+    params.push(appKey);
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT
+        MIN(ad_metrics.metric_date) AS minDate,
+        MAX(ad_metrics.metric_date) AS maxDate,
+        COUNT(DISTINCT ad_metrics.metric_date) AS daysWithData,
+        COUNT(*) AS rowCount,
+        COUNT(DISTINCT ad_metrics.campaign_id) AS campaignCount,
+        COALESCE(SUM(ad_metrics.cost), 0) AS totalCost
+      FROM ad_metrics
+      ${joins.join("\n")}
+      WHERE ${conditions.join(" AND ")}
+    `,
+    params,
+  );
+
+  const row = rows?.[0] || {};
+  return {
+    minDate: row.minDate ? new Date(row.minDate).toISOString().slice(0, 10) : null,
+    maxDate: row.maxDate ? new Date(row.maxDate).toISOString().slice(0, 10) : null,
+    daysWithData: Number(row.daysWithData) || 0,
+    rowCount: Number(row.rowCount) || 0,
+    campaignCount: Number(row.campaignCount) || 0,
+    totalCost: Number(row.totalCost) || 0,
+  };
+}
+
 module.exports = {
   upsertAdMetrics,
   getAdsReport,
   getCostTotal,
   getAdsDailyTrend,
+  getAdsCoverage,
 };

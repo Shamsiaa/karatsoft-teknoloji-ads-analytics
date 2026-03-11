@@ -130,7 +130,6 @@ async function getGoogleCampaignDailyMetrics(startDate, endDate) {
     FROM campaign
     WHERE
       segments.date BETWEEN '${startDate}' AND '${endDate}'
-      AND campaign.status != 'REMOVED'
   `;
 
   const rows = await googleAdsSearchStream(query);
@@ -140,7 +139,9 @@ async function getGoogleCampaignDailyMetrics(startDate, endDate) {
     const metrics = r.metrics || {};
     const segments = r.segments || {};
 
-    const costMicros = Number(metrics.cost_micros || 0);
+    const costMicros = Number(
+      metrics.costMicros != null ? metrics.costMicros : metrics.cost_micros || 0,
+    );
 
     return {
       campaignId: campaign.id,
@@ -156,7 +157,32 @@ async function getGoogleCampaignDailyMetrics(startDate, endDate) {
   });
 }
 
+async function getGoogleCustomerInfo() {
+  const query = `
+    SELECT
+      customer.id,
+      customer.descriptive_name,
+      customer.time_zone,
+      customer.currency_code
+    FROM customer
+    LIMIT 1
+  `;
+
+  const rows = await googleAdsSearchStream(query);
+  const row = rows?.[0] || {};
+  const customer = row.customer || {};
+
+  return {
+    id: customer.id || null,
+    name: customer.descriptiveName || customer.descriptive_name || null,
+    timeZone: customer.timeZone || customer.time_zone || null,
+    currencyCode: customer.currencyCode || customer.currency_code || null,
+  };
+}
+
 module.exports = {
   getGoogleCampaignDailyMetrics,
+  getGoogleCustomerInfo,
+  googleAdsSearchStream,
 };
 

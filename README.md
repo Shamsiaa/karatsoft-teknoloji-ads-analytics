@@ -1,6 +1,6 @@
 # Karatsoft Ads Reporting System
 
-An internal advertising performance tracking system that integrates with Google Ads API, Apple Search Ads API, and RevenueCat API to automatically collect, store, and report campaign + mobile revenue metrics.
+Internal advertising performance tracking system that integrates with **Google Ads**, **Apple Search Ads**, **App Store Connect**, and **Google Play** to collect, store, and report campaign + store revenue metrics.
 
 ---
 
@@ -48,23 +48,16 @@ Automatically fetch and report:
   - `installs`
   - `avgCPT`
 
-### 💰 RevenueCat Integration
+### 💰 Store Revenue (Direct)
 
-- Server-side API key authentication (`REVENUECAT_API_KEY`)
-- Daily revenue sync into `revenue_metrics`
-- Normalized fields:
-  - `app_id`
-  - `metric_date`
-  - `gross_revenue`
-  - `refunds`
-  - `net_revenue`
-  - `transactions`
-
-> Note: RevenueCat endpoint path is configurable through `REVENUECAT_METRICS_PATH_TEMPLATE` to support API-version differences.
+- **App Store Connect** financial reports (`/v1/salesReports`)
+- **Google Play** financial reports from Cloud Storage CSVs
+- Raw lines stored in `store_revenue_lines` (no conversion)
+- Daily summary in `store_revenue_metrics`
 
 ### ⏰ Daily Scheduler
 
-- Built-in worker syncs **Apple Ads + RevenueCat** once per day.
+- Built-in worker syncs **Apple Ads + Google Ads + Store Revenue + FX** once per day.
 - Runs on server start and schedules next run at a configured UTC time.
 - Configurable via:
   - `DAILY_SYNC_ENABLED=true|false`
@@ -79,27 +72,39 @@ Automatically fetch and report:
 
 - `GET /api/ads-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=apple|google][&appKey=photoverse]`
 - `GET /api/ads-report/live?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=apple|google]`
-- `POST /api/ads-report/sync?date=YYYY-MM-DD[&platform=apple|google|revenuecat|all]`
+- `GET /api/ads-report/coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=apple|google][&appKey=photoverse]`
+- `POST /api/ads-report/sync?date=YYYY-MM-DD[&platform=apple|google|all]`
   - Also supports range sync: `POST /api/ads-report/sync?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&platform=...]`
 
 ### Revenue report
 
-- `GET /api/revenue-report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appId=...]`
-- `POST /api/revenue-report/sync?date=YYYY-MM-DD`
 - `GET /api/revenue-report/compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]`
 - `GET /api/revenue-report/platform-compare?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]`
+- `GET /api/revenue-report/platform-compare-normalized?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]&targetCurrency=USD`
+- `GET /api/revenue-report/platform-revenue-raw?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]`
+- `GET /api/revenue-report/coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&appKey=photoverse]`
 
 ### Apps, Mapping, Store Revenue
 
 - `GET /api/apps`
 - `POST /api/apps`
-- `GET /api/apps/campaign-mappings[?appKey=photoverse]`
+- `GET /api/apps/ad-campaigns`
 - `POST /api/apps/campaign-mappings`
 - `POST /api/apps/store-revenue/import`
 - `POST /api/apps/store-revenue/import/app-store-csv`
 - `POST /api/apps/store-revenue/import/google-play-csv`
 - `POST /api/apps/store-revenue/sync?appKey=photoverse&date=YYYY-MM-DD[&store=app_store|google_play|all]`
 - `POST /api/apps/store-revenue/sync-range?appKey=photoverse&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&store=app_store|google_play|all]`
+
+### System / Sync
+
+- `GET /api/system/scheduler-status`
+- `GET /api/system/sync-state`
+- `POST /api/system/sync/all` (priority: today + yesterday, then backfill chunk)
+- `POST /api/system/exchange-rates/sync?date=YYYY-MM-DD[&currency=USD]`
+- `GET /api/system/exchange-rates?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD[&currency=USD]`
+- `GET /api/system/google-ads/debug?date=YYYY-MM-DD`
+- `GET /api/system/google-ads/debug-cost?date=YYYY-MM-DD`
 
 `/compare` returns high-level totals:
 
@@ -119,19 +124,31 @@ Automatically fetch and report:
 ## 🔐 Required Environment Variables
 
 - `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
-- Google Ads variables (existing)
-- Apple Ads variables (existing)
-- RevenueCat variables:
-  - `REVENUECAT_API_KEY`
-  - `REVENUECAT_PROJECT_ID` (required when using default metrics path)
-  - `REVENUECAT_API_BASE_URL` (optional, default: `https://api.revenuecat.com/v2`)
-  - `REVENUECAT_METRICS_PATH_TEMPLATE` (optional)
-
-Template example:
-
-```bash
-REVENUECAT_METRICS_PATH_TEMPLATE=/projects/{projectId}/metrics/overview
-```
+- Google Ads variables:
+  - `GOOGLE_ADS_CLIENT_ID`
+  - `GOOGLE_ADS_CLIENT_SECRET`
+  - `GOOGLE_ADS_REFRESH_TOKEN`
+  - `GOOGLE_ADS_DEVELOPER_TOKEN`
+  - `GOOGLE_ADS_CUSTOMER_ID`
+  - `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (optional, for MCC)
+  - `GOOGLE_ADS_API_VERSION` (default: v22)
+- Apple Search Ads variables:
+  - `APPLE_TEAM_ID`
+  - `APPLE_CLIENT_ID`
+  - `APPLE_KEY_ID`
+  - `APPLE_PRIVATE_KEY_PATH`
+  - `APPLE_ADS_ORG_ID`
+- App Store Connect:
+  - `APP_STORE_CONNECT_ISSUER_ID`
+  - `APP_STORE_CONNECT_KEY_ID`
+  - `APP_STORE_CONNECT_PRIVATE_KEY_PATH`
+  - `APP_STORE_CONNECT_VENDOR_NUMBER`
+- Google Play:
+  - `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_PATH`
+  - `GOOGLE_PLAY_REPORTS_BUCKET`
+  - `GOOGLE_PLAY_REPORTS_PREFIX` (default `earnings/`)
+- Exchange rates:
+  - `EXCHANGE_RATE_TARGET_CURRENCY` (default `USD`)
 
 Scheduler example:
 
@@ -149,10 +166,13 @@ Run migrations in order:
 
 ```bash
 mysql -u user -p database < migrations/001_ad_metrics.sql
-mysql -u user -p database < migrations/002_revenue_metrics.sql
 mysql -u user -p database < migrations/004_apps.sql
-mysql -u user -p database < migrations/005_campaign_app_mapping.sql
+mysql -u user -p database < migrations/009_ad_campaigns_and_app_rel.sql
 mysql -u user -p database < migrations/006_store_revenue_metrics.sql
+mysql -u user -p database < migrations/007_store_revenue_lines.sql
+mysql -u user -p database < migrations/008_exchange_rates.sql
+mysql -u user -p database < migrations/010_sync_state.sql
+mysql -u user -p database < migrations/011_remove_revenuecat.sql
 ```
 
 Optional local fixture seed for non-zero ROAS testing:
@@ -183,16 +203,12 @@ VITE_API_BASE_URL=http://localhost:3000
 
 Current UI includes:
 - Date preset + platform filters
+- Currency filter (USD/TRY using stored exchange rates)
 - KPI cards (Clicks, Impressions, Spend, Conversions, CPC, CPM)
 - Campaign performance table from `/api/ads-report`
-- Revenue/ROAS summary from `/api/revenue-report/compare`
-- Platform spend/revenue blocks (Apple, Google, Total) from `/api/revenue-report/platform-compare`
+- Platform revenue blocks from `/api/revenue-report/platform-revenue-raw`
 - Scheduler status from `/api/system/scheduler-status`
-
-Platform revenue attribution behavior:
-- Preferred: import direct store financial data to `store_revenue_metrics` (`app_store` / `google_play`).
-- Fallback 1: RevenueCat app-id mapping (`REVENUECAT_APPLE_APP_IDS` / `REVENUECAT_GOOGLE_APP_IDS`).
-- Fallback 2: spend-share estimate if no direct platform revenue exists.
+- Coverage cards from `/api/ads-report/coverage` and `/api/revenue-report/coverage`
 
 CSV connector notes:
 - App Store / Google Play exported report text can be sent as `csvText`.

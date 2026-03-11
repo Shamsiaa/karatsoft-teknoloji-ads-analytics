@@ -62,6 +62,19 @@ function formatCurrencyCode(value, currencyCode) {
   }
 }
 
+function getRateForDate(date, rateMap, fallbackRate) {
+  if (!date) return fallbackRate || null;
+  return rateMap?.[date] ?? fallbackRate ?? null;
+}
+
+function convertCurrency(value, fromCurrency, toCurrency, rate) {
+  if (fromCurrency === toCurrency) return value;
+  if (!rate) return value;
+  if (fromCurrency === "TRY" && toCurrency === "USD") return value * rate;
+  if (fromCurrency === "USD" && toCurrency === "TRY") return value / rate;
+  return value;
+}
+
 function getPlatformCurrency(platform) {
   if (platform === "google") return "TRY";
   if (platform === "apple") return "USD";
@@ -73,20 +86,24 @@ function percentChange(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
-function downloadCsv(rows) {
-  const headers = ["platform", "campaign", "clicks", "impressions", "cost", "conversions", "cpc", "cpm"];
+function downloadCsv(rows, currencyCode = "USD") {
+  const headers = ["platform", "campaign", "clicks", "impressions", "cost", "conversions", "cpc", "cpm", "currency"];
   const lines = [headers.join(",")];
   for (const r of rows) {
+    const cost = r.convertedCost ?? r.cost ?? 0;
+    const cpc = r.convertedCpc ?? r.cpc ?? 0;
+    const cpm = r.convertedCpm ?? r.cpm ?? 0;
     lines.push(
       [
         r.platform,
         `"${String(r.campaign || "").replace(/"/g, '""')}"`,
         r.clicks || 0,
         r.impressions || 0,
-        r.cost || 0,
+        cost,
         r.conversions ?? "",
-        r.cpc || 0,
-        r.cpm || 0,
+        cpc,
+        cpm,
+        currencyCode,
       ].join(","),
     );
   }
@@ -154,10 +171,13 @@ export default function App() {
   const [adsRows, setAdsRows] = useState([]);
   const [trendRows, setTrendRows] = useState([]);
   const [previousTotals, setPreviousTotals] = useState(null);
+  const [previousRows, setPreviousRows] = useState([]);
   const [platformRevenueRaw, setPlatformRevenueRaw] = useState(null);
   const [adsCoverage, setAdsCoverage] = useState(null);
   const [revenueCoverage, setRevenueCoverage] = useState(null);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
+  const [exchangeRates, setExchangeRates] = useState(null);
+  const [displayCurrency, setDisplayCurrency] = useState("USD");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -245,8 +265,12 @@ export default function App() {
         if (appFilter !== "all") revenueCoverageUrl.searchParams.set("appKey", appFilter);
 
         const schedulerUrl = `${API_BASE_URL}/api/system/scheduler-status`;
+        const fxUrl = new URL(`${API_BASE_URL}/api/system/exchange-rates`);
+        fxUrl.searchParams.set("startDate", range.startDate);
+        fxUrl.searchParams.set("endDate", range.endDate);
+        fxUrl.searchParams.set("currency", "USD");
 
-        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, adsCoverageRes, revenueCoverageRes, schedulerRes] = await Promise.all([
+        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, adsCoverageRes, revenueCoverageRes, schedulerRes, fxRes] = await Promise.all([
           fetch(adsUrl),
           fetch(trendUrl),
           fetch(prevAdsUrl),
@@ -254,6 +278,7 @@ export default function App() {
           fetch(adsCoverageUrl),
           fetch(revenueCoverageUrl),
           fetch(schedulerUrl),
+          fetch(fxUrl),
         ]);
 
         if (!adsRes.ok) throw new Error(`ads-report failed: ${adsRes.status}`);
@@ -263,8 +288,9 @@ export default function App() {
         if (!adsCoverageRes.ok) throw new Error(`ads-coverage failed: ${adsCoverageRes.status}`);
         if (!revenueCoverageRes.ok) throw new Error(`revenue-coverage failed: ${revenueCoverageRes.status}`);
         if (!schedulerRes.ok) throw new Error(`scheduler-status failed: ${schedulerRes.status}`);
+        if (!fxRes.ok) throw new Error(`exchange-rates failed: ${fxRes.status}`);
 
-        const [adsData, trendData, prevAdsData, platformRevenueRawData, adsCoverageData, revenueCoverageData, schedulerData] = await Promise.all([
+        const [adsData, trendData, prevAdsData, platformRevenueRawData, adsCoverageData, revenueCoverageData, schedulerData, fxData] = await Promise.all([
           adsRes.json(),
           trendRes.json(),
           prevAdsRes.json(),
@@ -272,6 +298,7 @@ export default function App() {
           adsCoverageRes.json(),
           revenueCoverageRes.json(),
           schedulerRes.json(),
+          fxRes.json(),
         ]);
 
         const currentRows = Array.isArray(adsData) ? adsData : [];
@@ -280,10 +307,12 @@ export default function App() {
         setAdsRows(currentRows);
         setTrendRows(Array.isArray(trendData) ? trendData : []);
         setPreviousTotals(sumTotals(previousRows));
+        setPreviousRows(previousRows);
         setPlatformRevenueRaw(platformRevenueRawData);
         setAdsCoverage(adsCoverageData);
         setRevenueCoverage(revenueCoverageData);
         setSchedulerStatus(schedulerData);
+        setExchangeRates(fxData);
         debugLog("load.success", {
           rows: currentRows.length,
           trendRows: Array.isArray(trendData) ? trendData.length : 0,
@@ -301,6 +330,25 @@ export default function App() {
     load();
   }, [appFilter, customEndDate, customStartDate, platform, range.endDate, range.startDate, rangeMode]);
 
+  const rateMap = useMemo(() => {
+    const rows = exchangeRates?.rows || [];
+    const map = {};
+    for (const r of rows) {
+      if (r.rateDate && r.exchangeRate != null) {
+        map[r.rateDate] = Number(r.exchangeRate);
+      }
+    }
+    return map;
+  }, [exchangeRates]);
+
+  const avgRate = useMemo(() => {
+    if (exchangeRates?.avgRate) return Number(exchangeRates.avgRate);
+    const rows = exchangeRates?.rows || [];
+    if (!rows.length) return null;
+    const total = rows.reduce((sum, r) => sum + Number(r.exchangeRate || 0), 0);
+    return total / rows.length;
+  }, [exchangeRates]);
+
   const tableRows = useMemo(
     () =>
       adsRows.map((r) => {
@@ -309,9 +357,13 @@ export default function App() {
         const cost = Number(r.cost) || 0;
         const cpc = clicks > 0 ? cost / clicks : 0;
         const cpm = impressions > 0 ? (cost / impressions) * 1000 : 0;
-        return { ...r, clicks, impressions, cost, cpc, cpm };
+        const fromCurrency = getPlatformCurrency(r.platform);
+        const convertedCost = convertCurrency(cost, fromCurrency, displayCurrency, avgRate);
+        const convertedCpc = clicks > 0 ? convertedCost / clicks : 0;
+        const convertedCpm = impressions > 0 ? (convertedCost / impressions) * 1000 : 0;
+        return { ...r, clicks, impressions, cost, cpc, cpm, convertedCost, convertedCpc, convertedCpm };
       }),
-    [adsRows],
+    [adsRows, avgRate, displayCurrency],
   );
 
   const platformSummary = useMemo(() => {
@@ -339,9 +391,77 @@ export default function App() {
 
   const totals = useMemo(() => sumTotals(tableRows), [tableRows]);
 
-  const cpc = totals.clicks > 0 ? totals.spend / totals.clicks : 0;
-  const cpm = totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0;
-  const activeCurrency = getPlatformCurrency(platform);
+  const activeCurrency = displayCurrency;
+
+  const totalsConverted = useMemo(() => {
+    if (!tableRows.length) {
+      return { spend: 0, clicks: 0, impressions: 0, conversions: 0 };
+    }
+
+    if (platform === "all") {
+      return tableRows.reduce(
+        (acc, row) => {
+          acc.spend += Number(row.convertedCost) || 0;
+          acc.clicks += Number(row.clicks) || 0;
+          acc.impressions += Number(row.impressions) || 0;
+          acc.conversions += Number(row.conversions) || 0;
+          return acc;
+        },
+        { spend: 0, clicks: 0, impressions: 0, conversions: 0 },
+      );
+    }
+
+    return trendRows.reduce(
+      (acc, row) => {
+        const fromCurrency = getPlatformCurrency(platform);
+        const rate = getRateForDate(row.date, rateMap, avgRate);
+        const cost = Number(row.cost) || 0;
+        const converted = convertCurrency(cost, fromCurrency, displayCurrency, rate);
+        acc.spend += converted;
+        acc.clicks += Number(row.clicks) || 0;
+        acc.impressions += Number(row.impressions) || 0;
+        acc.conversions += Number(row.conversions) || 0;
+        return acc;
+      },
+      { spend: 0, clicks: 0, impressions: 0, conversions: 0 },
+    );
+  }, [avgRate, displayCurrency, platform, rateMap, tableRows, trendRows]);
+
+  const previousTotalsConverted = useMemo(() => {
+    if (!previousRows.length) return null;
+    return previousRows.reduce(
+      (acc, row) => {
+        const fromCurrency = getPlatformCurrency(row.platform);
+        const converted = convertCurrency(
+          Number(row.cost) || 0,
+          fromCurrency,
+          displayCurrency,
+          avgRate,
+        );
+        acc.spend += converted;
+        acc.clicks += Number(row.clicks) || 0;
+        acc.impressions += Number(row.impressions) || 0;
+        acc.conversions += Number(row.conversions) || 0;
+        return acc;
+      },
+      { spend: 0, clicks: 0, impressions: 0, conversions: 0 },
+    );
+  }, [avgRate, displayCurrency, previousRows]);
+
+  const trendRowsForDisplay = useMemo(() => {
+    if (!trendRows.length) return trendRows;
+    if (platform === "all") return trendRows;
+    const fromCurrency = getPlatformCurrency(platform);
+    return trendRows.map((row) => {
+      const rate = getRateForDate(row.date, rateMap, avgRate);
+      const cost = Number(row.cost) || 0;
+      const convertedCost = convertCurrency(cost, fromCurrency, displayCurrency, rate);
+      return { ...row, cost: convertedCost };
+    });
+  }, [avgRate, displayCurrency, platform, rateMap, trendRows]);
+
+  const cpc = totalsConverted.clicks > 0 ? totalsConverted.spend / totalsConverted.clicks : 0;
+  const cpm = totalsConverted.impressions > 0 ? (totalsConverted.spend / totalsConverted.impressions) * 1000 : 0;
 
   function onSort(nextKey) {
     if (sortKey === nextKey) {
@@ -465,6 +585,15 @@ export default function App() {
 
             <select
               className="rounded-lg border bg-white px-4 py-2"
+              value={displayCurrency}
+              onChange={(e) => setDisplayCurrency(e.target.value)}
+            >
+              <option value="USD">USD</option>
+              <option value="TRY">TRY</option>
+            </select>
+
+            <select
+              className="rounded-lg border bg-white px-4 py-2"
               value={appFilter}
               onChange={(e) => setAppFilter(e.target.value)}
             >
@@ -478,7 +607,7 @@ export default function App() {
 
             <button
               className="rounded-lg bg-blue-600 px-4 py-2 text-white disabled:bg-blue-300"
-              onClick={() => downloadCsv(tableRows)}
+              onClick={() => downloadCsv(tableRows, displayCurrency)}
               disabled={!tableRows.length}
             >
               CSV İndir
@@ -507,15 +636,20 @@ export default function App() {
             >
               Tümü
             </button>
-            {platformSummary.map((p) => (
+            {platformSummary.map((p) => {
+              const spendConverted =
+                platform !== "all" && p.platform === platform
+                  ? totalsConverted.spend
+                  : convertCurrency(p.spend, getPlatformCurrency(p.platform), displayCurrency, avgRate);
+              return (
               <button
                 key={p.platform}
                 className={`rounded-full border px-3 py-1 text-sm ${platform === p.platform ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700"}`}
                 onClick={() => setPlatform(p.platform)}
               >
-                {p.platform} | {formatCurrency(p.spend, getPlatformCurrency(p.platform))} harcama
+                {p.platform} | {formatCurrency(spendConverted, displayCurrency)} harcama
               </button>
-            ))}
+            )})}
           </div>
         </div>
 
@@ -535,8 +669,8 @@ export default function App() {
           />
           <KpiCard
             label="Harcama"
-            value={formatCurrency(totals.spend, activeCurrency)}
-            delta={percentChange(totals.spend, previousTotals?.spend)}
+            value={formatCurrency(totalsConverted.spend, activeCurrency)}
+            delta={percentChange(totalsConverted.spend, previousTotalsConverted?.spend)}
           />
           <KpiCard
             label="Dönüşüm"
@@ -549,6 +683,12 @@ export default function App() {
           <KpiCard label="CPC" value={formatCurrency(cpc, activeCurrency)} />
           <KpiCard label="CPM" value={formatCurrency(cpm, activeCurrency)} />
         </div>
+
+        {platform === "all" ? (
+          <div className="mb-6 rounded-xl border bg-white p-4 text-xs text-gray-600 shadow-sm">
+            Tüm platformlar seçiliyken harcama farklı para birimlerinin toplamıdır. Döviz dönüşümü ortalama kur ile yaklaşık hesaplanır.
+          </div>
+        ) : null}
 
         <div className="mb-8 grid gap-6 lg:grid-cols-2">
           <CoverageCard
@@ -577,7 +717,7 @@ export default function App() {
         <div className="mb-8 grid gap-6 lg:grid-cols-2">
           <TrendCard
             title="Günlük Harcama Trendi"
-            series={trendRows}
+            series={trendRowsForDisplay}
             keyName="cost"
           />
           <TrendCard
@@ -597,12 +737,18 @@ export default function App() {
                     <PlatformRevenueListCard
                       title="Apple Revenue"
                       items={platformRevenueRaw.apple}
+                      displayCurrency={displayCurrency}
+                      avgRate={avgRate}
+                      rateMap={rateMap}
                     />
                   ) : null}
                   {(platform === "all" || platform === "google") ? (
                     <PlatformRevenueListCard
                       title="Google Revenue"
                       items={platformRevenueRaw.google}
+                      displayCurrency={displayCurrency}
+                      avgRate={avgRate}
+                      rateMap={rateMap}
                     />
                   ) : null}
                 </div>
@@ -729,12 +875,12 @@ export default function App() {
                     <td className="p-3">{row.campaign || "-"}</td>
                     <td className="p-3">{formatNumber(row.clicks)}</td>
                     <td className="p-3">{formatNumber(row.impressions)}</td>
-                    <td className="p-3">{formatCurrency(row.cost, getPlatformCurrency(row.platform))}</td>
+                    <td className="p-3">{formatCurrency(row.convertedCost, displayCurrency)}</td>
                     <td className="p-3">
                       {formatNumber(Number(row.conversions) || 0)}
                     </td>
-                    <td className="p-3">{formatCurrency(row.cpc, getPlatformCurrency(row.platform))}</td>
-                    <td className="p-3">{formatCurrency(row.cpm, getPlatformCurrency(row.platform))}</td>
+                    <td className="p-3">{formatCurrency(row.convertedCpc, displayCurrency)}</td>
+                    <td className="p-3">{formatCurrency(row.convertedCpm, displayCurrency)}</td>
                   </tr>
                 ))}
                 {!sortedRows.length ? (
@@ -852,7 +998,8 @@ function LoadingSkeleton() {
   );
 }
 
-function PlatformRevenueListCard({ title, items }) {
+function PlatformRevenueListCard({ title, items, displayCurrency, avgRate, rateMap }) {
+  const useConversion = displayCurrency === "USD" || displayCurrency === "TRY";
   return (
     <div className="rounded-lg border bg-gray-50 p-4">
       <p className="text-sm font-semibold text-gray-800">{title}</p>
@@ -860,9 +1007,22 @@ function PlatformRevenueListCard({ title, items }) {
         {(items || []).length ? (
           items.map((item) => (
             <p key={`${title}-${item.currency}`}>
-              {item.currency}:{" "}
+              {useConversion && String(item.currency || "").toUpperCase() !== displayCurrency
+                ? `${item.currency} → ${displayCurrency}`
+                : item.currency}:
+              {" "}
               <span className="font-semibold">
-                {formatCurrencyCode(item.revenue, item.currency)}
+                {useConversion
+                  ? formatCurrency(
+                      convertCurrency(
+                        Number(item.revenue) || 0,
+                        String(item.currency || "USD").toUpperCase(),
+                        displayCurrency,
+                        avgRate,
+                      ),
+                      displayCurrency,
+                    )
+                  : formatCurrencyCode(item.revenue, item.currency)}
               </span>
             </p>
           ))

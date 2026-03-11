@@ -119,7 +119,7 @@ async function runSyncAllNow() {
   try {
     const apps = await appsRepo.listApps();
     const state = await syncStateRepo.getState();
-    const cursorDate = state?.cursorDate || shiftDate(yesterday, -1);
+    const cursorDate = state?.cursorDate != null ? shiftDate(state?.cursorDate, +1) : shiftDate(yesterday, -1);
     const backfillDates = buildBackfillDates(cursorDate, cfg.backfillFloorDate, cfg.backfillChunkDays);
     const dates = [today, yesterday, ...backfillDates];
 

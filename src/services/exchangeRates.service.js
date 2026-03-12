@@ -34,29 +34,51 @@ function requestJson(url) {
   });
 }
 
+async function fetchAllRatesForDate(date) {
+  const iso = String(date);
+  const primaryUrl = `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${iso}/v1/currencies/usd.json`;
+  const fallbackUrl = `https://${iso}.currency-api.pages.dev/v1/currencies/usd.json`;
+
+  try {
+    return await requestJson(primaryUrl);
+  } catch (_err) {
+    return await requestJson(fallbackUrl);
+  }
+}
+
 async function syncExchangeRateForDate(date, targetCurrency = "USD") {
   const target = String(targetCurrency || "USD").toUpperCase();
-  const url = new URL(`https://api.frankfurter.app/${date}`);
-  url.searchParams.set("from", "TRY");
-  url.searchParams.set("to", target);
-
-  const payload = await requestJson(url.toString());
+  const payload = await fetchAllRatesForDate(date);
   const rateDate = payload?.date || date;
-  const rate = payload?.rates?.[target];
-  if (rate == null) {
+  const rates = payload?.usd || payload?.USD;
+  if (!rates || typeof rates !== "object") {
+    throw new Error(`No USD rates in FX response for ${date}`);
+  }
+
+  await exchangeRatesRepo.upsertCurrency("USD", "US Dollar");
+  let storedCount = 0;
+  for (const [codeRaw, rateRaw] of Object.entries(rates)) {
+    const code = String(codeRaw || "").trim().toUpperCase();
+    if (!code || code.length !== 3 || !/^[A-Z]{3}$/.test(code)) continue;
+    const rate = Number(rateRaw);
+    if (!Number.isFinite(rate)) continue;
+    await exchangeRatesRepo.upsertCurrency(code, code);
+    await exchangeRatesRepo.upsertExchangeRate(code, rateDate, rate);
+    storedCount += 1;
+  }
+
+  const targetRate = rates[String(target).toLowerCase()] ?? rates[target];
+  if (targetRate == null) {
     throw new Error(`No ${target} rate in FX response for ${date}`);
   }
 
-  await exchangeRatesRepo.upsertCurrency("TRY", "Turkish Lira");
-  await exchangeRatesRepo.upsertCurrency(target, target);
-  await exchangeRatesRepo.upsertExchangeRate(target, rateDate, rate);
-
   return {
-    source: "frankfurter",
-    baseCurrency: "TRY",
+    source: "fawazahmed0",
+    baseCurrency: "USD",
     targetCurrency: target,
     rateDate,
-    exchangeRate: Number(rate),
+    exchangeRate: Number(targetRate),
+    storedCount,
   };
 }
 

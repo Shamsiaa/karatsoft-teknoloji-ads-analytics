@@ -63,17 +63,14 @@ function formatCurrencyCode(value, currencyCode) {
   }
 }
 
-function getRateForDate(date, rateMap, fallbackRate) {
-  if (!date) return fallbackRate || null;
-  return rateMap?.[date] ?? fallbackRate ?? null;
-}
-
-function convertCurrency(value, fromCurrency, toCurrency, rate) {
-  if (fromCurrency === toCurrency) return value;
-  if (!rate) return value;
-  if (fromCurrency === "TRY" && toCurrency === "USD") return value * rate;
-  if (fromCurrency === "USD" && toCurrency === "TRY") return value / rate;
-  return value;
+function convertWithUsdBase(value, fromCurrency, toCurrency, avgRates) {
+  const from = String(fromCurrency || "USD").toUpperCase();
+  const to = String(toCurrency || "USD").toUpperCase();
+  if (from === to) return value;
+  const usdToFrom = from === "USD" ? 1 : avgRates?.[from];
+  const usdToTo = to === "USD" ? 1 : avgRates?.[to];
+  if (!usdToFrom || !usdToTo) return null;
+  return (Number(value) || 0) * (usdToTo / usdToFrom);
 }
 
 function getPlatformCurrency(platform) {
@@ -283,12 +280,8 @@ export default function App() {
         if (appFilter !== "all") revenueCoverageUrl.searchParams.set("appKey", appFilter);
 
         const schedulerUrl = `${API_BASE_URL}/api/system/scheduler-status`;
-        const fxUrl = new URL(`${API_BASE_URL}/api/system/exchange-rates`);
-        fxUrl.searchParams.set("startDate", range.startDate);
-        fxUrl.searchParams.set("endDate", range.endDate);
-        fxUrl.searchParams.set("currency", "USD");
 
-        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, adsCoverageRes, revenueCoverageRes, schedulerRes, fxRes] = await Promise.all([
+        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, adsCoverageRes, revenueCoverageRes, schedulerRes] = await Promise.all([
           fetch(adsUrl),
           fetch(trendUrl),
           fetch(prevAdsUrl),
@@ -296,7 +289,6 @@ export default function App() {
           fetch(adsCoverageUrl),
           fetch(revenueCoverageUrl),
           fetch(schedulerUrl),
-          fetch(fxUrl),
         ]);
 
         if (!adsRes.ok) throw new Error(`ads-report failed: ${adsRes.status}`);
@@ -306,9 +298,8 @@ export default function App() {
         if (!adsCoverageRes.ok) throw new Error(`ads-coverage failed: ${adsCoverageRes.status}`);
         if (!revenueCoverageRes.ok) throw new Error(`revenue-coverage failed: ${revenueCoverageRes.status}`);
         if (!schedulerRes.ok) throw new Error(`scheduler-status failed: ${schedulerRes.status}`);
-        if (!fxRes.ok) throw new Error(`exchange-rates failed: ${fxRes.status}`);
 
-        const [adsData, trendData, prevAdsData, platformRevenueRawData, adsCoverageData, revenueCoverageData, schedulerData, fxData] = await Promise.all([
+        const [adsData, trendData, prevAdsData, platformRevenueRawData, adsCoverageData, revenueCoverageData, schedulerData] = await Promise.all([
           adsRes.json(),
           trendRes.json(),
           prevAdsRes.json(),
@@ -316,7 +307,6 @@ export default function App() {
           adsCoverageRes.json(),
           revenueCoverageRes.json(),
           schedulerRes.json(),
-          fxRes.json(),
         ]);
 
         const currentRows = Array.isArray(adsData) ? adsData : [];
@@ -330,7 +320,6 @@ export default function App() {
         setAdsCoverage(adsCoverageData);
         setRevenueCoverage(revenueCoverageData);
         setSchedulerStatus(schedulerData);
-        setExchangeRates(fxData);
         debugLog("load.success", {
           rows: currentRows.length,
           trendRows: Array.isArray(trendData) ? trendData.length : 0,
@@ -348,24 +337,36 @@ export default function App() {
     load();
   }, [appFilter, customEndDate, customStartDate, platform, range.endDate, range.startDate, rangeMode]);
 
-  const rateMap = useMemo(() => {
-    const rows = exchangeRates?.rows || [];
-    const map = {};
-    for (const r of rows) {
-      if (r.rateDate && r.exchangeRate != null) {
-        map[r.rateDate] = Number(r.exchangeRate);
+  useEffect(() => {
+    async function loadFxRates() {
+      if (!platformRevenueRaw) return;
+      const currencySet = new Set(["USD", "TRY", displayCurrency]);
+      for (const item of platformRevenueRaw.apple || []) {
+        if (item.currency) currencySet.add(String(item.currency).toUpperCase());
+      }
+      for (const item of platformRevenueRaw.google || []) {
+        if (item.currency) currencySet.add(String(item.currency).toUpperCase());
+      }
+      const currencies = [...currencySet].filter(Boolean).sort();
+      if (!currencies.length) return;
+
+      const fxUrl = new URL(`${API_BASE_URL}/api/system/exchange-rates`);
+      fxUrl.searchParams.set("startDate", range.startDate);
+      fxUrl.searchParams.set("endDate", range.endDate);
+      fxUrl.searchParams.set("currencies", currencies.join(","));
+      try {
+        const res = await fetch(fxUrl);
+        if (!res.ok) throw new Error(`exchange-rates failed: ${res.status}`);
+        const data = await res.json();
+        setExchangeRates(data);
+      } catch (e) {
+        debugLog("fx.load.error", { message: e?.message });
       }
     }
-    return map;
-  }, [exchangeRates]);
+    loadFxRates();
+  }, [displayCurrency, platformRevenueRaw, range.endDate, range.startDate]);
 
-  const avgRate = useMemo(() => {
-    if (exchangeRates?.avgRate) return Number(exchangeRates.avgRate);
-    const rows = exchangeRates?.rows || [];
-    if (!rows.length) return null;
-    const total = rows.reduce((sum, r) => sum + Number(r.exchangeRate || 0), 0);
-    return total / rows.length;
-  }, [exchangeRates]);
+  const avgRates = useMemo(() => exchangeRates?.avgRates || {}, [exchangeRates]);
 
   const tableRows = useMemo(
     () =>
@@ -376,12 +377,12 @@ export default function App() {
         const cpc = clicks > 0 ? cost / clicks : 0;
         const cpm = impressions > 0 ? (cost / impressions) * 1000 : 0;
         const fromCurrency = getPlatformCurrency(r.platform);
-        const convertedCost = convertCurrency(cost, fromCurrency, displayCurrency, avgRate);
+        const convertedCost = convertWithUsdBase(cost, fromCurrency, displayCurrency, avgRates) ?? cost;
         const convertedCpc = clicks > 0 ? convertedCost / clicks : 0;
         const convertedCpm = impressions > 0 ? (convertedCost / impressions) * 1000 : 0;
         return { ...r, clicks, impressions, cost, cpc, cpm, convertedCost, convertedCpc, convertedCpm };
       }),
-    [adsRows, avgRate, displayCurrency],
+    [adsRows, avgRates, displayCurrency],
   );
 
   const platformSummary = useMemo(() => {
@@ -432,9 +433,8 @@ export default function App() {
     return trendRows.reduce(
       (acc, row) => {
         const fromCurrency = getPlatformCurrency(platform);
-        const rate = getRateForDate(row.date, rateMap, avgRate);
         const cost = Number(row.cost) || 0;
-        const converted = convertCurrency(cost, fromCurrency, displayCurrency, rate);
+        const converted = convertWithUsdBase(cost, fromCurrency, displayCurrency, avgRates) ?? cost;
         acc.spend += converted;
         acc.clicks += Number(row.clicks) || 0;
         acc.impressions += Number(row.impressions) || 0;
@@ -443,19 +443,20 @@ export default function App() {
       },
       { spend: 0, clicks: 0, impressions: 0, conversions: 0 },
     );
-  }, [avgRate, displayCurrency, platform, rateMap, tableRows, trendRows]);
+  }, [avgRates, displayCurrency, platform, tableRows, trendRows]);
 
   const previousTotalsConverted = useMemo(() => {
     if (!previousRows.length) return null;
     return previousRows.reduce(
       (acc, row) => {
         const fromCurrency = getPlatformCurrency(row.platform);
-        const converted = convertCurrency(
-          Number(row.cost) || 0,
-          fromCurrency,
-          displayCurrency,
-          avgRate,
-        );
+        const converted =
+          convertWithUsdBase(
+            Number(row.cost) || 0,
+            fromCurrency,
+            displayCurrency,
+            avgRates,
+          ) ?? (Number(row.cost) || 0);
         acc.spend += converted;
         acc.clicks += Number(row.clicks) || 0;
         acc.impressions += Number(row.impressions) || 0;
@@ -464,19 +465,18 @@ export default function App() {
       },
       { spend: 0, clicks: 0, impressions: 0, conversions: 0 },
     );
-  }, [avgRate, displayCurrency, previousRows]);
+  }, [avgRates, displayCurrency, previousRows]);
 
   const trendRowsForDisplay = useMemo(() => {
     if (!trendRows.length) return trendRows;
     if (platform === "all") return trendRows;
     const fromCurrency = getPlatformCurrency(platform);
     return trendRows.map((row) => {
-      const rate = getRateForDate(row.date, rateMap, avgRate);
       const cost = Number(row.cost) || 0;
-      const convertedCost = convertCurrency(cost, fromCurrency, displayCurrency, rate);
+      const convertedCost = convertWithUsdBase(cost, fromCurrency, displayCurrency, avgRates) ?? cost;
       return { ...row, cost: convertedCost };
     });
-  }, [avgRate, displayCurrency, platform, rateMap, trendRows]);
+  }, [avgRates, displayCurrency, platform, trendRows]);
 
   const cpc = totalsConverted.clicks > 0 ? totalsConverted.spend / totalsConverted.clicks : 0;
   const cpm = totalsConverted.impressions > 0 ? (totalsConverted.spend / totalsConverted.impressions) * 1000 : 0;
@@ -658,7 +658,7 @@ export default function App() {
               const spendConverted =
                 platform !== "all" && p.platform === platform
                   ? totalsConverted.spend
-                  : convertCurrency(p.spend, getPlatformCurrency(p.platform), displayCurrency, avgRate);
+                  : (convertWithUsdBase(p.spend, getPlatformCurrency(p.platform), displayCurrency, avgRates) ?? p.spend);
               return (
               <button
                 key={p.platform}
@@ -756,8 +756,7 @@ export default function App() {
                       title="Apple Revenue"
                       items={platformRevenueRaw.apple}
                       displayCurrency={displayCurrency}
-                      avgRate={avgRate}
-                      rateMap={rateMap}
+                      avgRates={avgRates}
                     />
                   ) : null}
                   {(platform === "all" || platform === "google") ? (
@@ -765,8 +764,7 @@ export default function App() {
                       title="Google Revenue"
                       items={platformRevenueRaw.google}
                       displayCurrency={displayCurrency}
-                      avgRate={avgRate}
-                      rateMap={rateMap}
+                      avgRates={avgRates}
                     />
                   ) : null}
                 </div>
@@ -1016,28 +1014,25 @@ function LoadingSkeleton() {
   );
 }
 
-function PlatformRevenueListCard({ title, items, displayCurrency, avgRate, rateMap }) {
+function PlatformRevenueListCard({ title, items, displayCurrency, avgRates }) {
   const useConversion = displayCurrency === "USD" || displayCurrency === "TRY";
   const normalizedItems = (items || []).map((item) => ({
     currency: String(item.currency || "USD").toUpperCase(),
     revenue: Number(item.revenue) || 0,
   }));
   const convertibleItems = useConversion
-    ? normalizedItems.filter((item) =>
-        (item.currency === displayCurrency) ||
-        ((item.currency === "TRY" || item.currency === "USD") && (displayCurrency === "TRY" || displayCurrency === "USD")))
+    ? normalizedItems.filter((item) => {
+        const usdToFrom = item.currency === "USD" ? 1 : avgRates?.[item.currency];
+        const usdToTo = displayCurrency === "USD" ? 1 : avgRates?.[displayCurrency];
+        return usdToFrom && usdToTo;
+      })
     : [];
   const ignoredCount = useConversion ? normalizedItems.length - convertibleItems.length : 0;
   const convertedTotal = useConversion
     ? convertibleItems.reduce(
         (sum, item) =>
           sum +
-          convertCurrency(
-            item.revenue,
-            item.currency,
-            displayCurrency,
-            avgRate,
-          ),
+          (convertWithUsdBase(item.revenue, item.currency, displayCurrency, avgRates) ?? 0),
         0,
       )
     : 0;

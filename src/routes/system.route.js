@@ -229,8 +229,36 @@ router.get("/exchange-rates", async (req, res) => {
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
     const currency = (req.query.currency || "USD").toUpperCase();
+    const currenciesParam = req.query.currencies;
     if (!startDate || !endDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
       return res.status(400).json({ error: "startDate and endDate are required (YYYY-MM-DD)" });
+    }
+    if (currenciesParam) {
+      const codes = currenciesParam
+        .split(",")
+        .map((c) => String(c || "").trim().toUpperCase())
+        .filter(Boolean);
+      const rows = await exchangeRatesRepo.listExchangeRatesByDateRangeForCurrencies(codes, startDate, endDate);
+      const avgRates = {};
+      for (const code of codes) {
+        const byCode = rows.filter((r) => r.currencyCode === code);
+        if (!byCode.length) {
+          avgRates[code] = null;
+          continue;
+        }
+        const sum = byCode.reduce((acc, r) => acc + (Number(r.exchangeRate) || 0), 0);
+        avgRates[code] = sum / byCode.length;
+      }
+
+      return res.json({
+        baseCurrency: "USD",
+        currencies: codes,
+        startDate,
+        endDate,
+        count: rows.length,
+        avgRates,
+        rows,
+      });
     }
 
     const rows = await exchangeRatesRepo.listExchangeRatesByDateRange(currency, startDate, endDate);
@@ -238,7 +266,7 @@ router.get("/exchange-rates", async (req, res) => {
     const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
 
     return res.json({
-      baseCurrency: "TRY",
+      baseCurrency: "USD",
       currency,
       startDate,
       endDate,

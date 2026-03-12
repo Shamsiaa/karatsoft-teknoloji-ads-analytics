@@ -3,6 +3,7 @@ const https = require("https");
 const zlib = require("zlib");
 const jwt = require("jsonwebtoken");
 const { importStoreCsv } = require("../storeRevenueCsv.service");
+const appsRepo = require("../../db/apps.repository");
 
 function getRequiredEnv(name) {
   const v = process.env[name];
@@ -85,13 +86,27 @@ function downloadAppStoreReport(date) {
 
 async function syncAppStoreRevenueForDate(appKey, date) {
   const reportText = await downloadAppStoreReport(date);
+  const apps = await appsRepo.listApps();
+  const appKeyBySku = {};
+  const bundleBySku = {};
+  for (const app of apps) {
+    if (!app.iosSku) continue;
+    const skus = String(app.iosSku)
+      .split(/[,\n;]/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const sku of skus) {
+      appKeyBySku[sku] = app.appKey;
+      if (app.iosBundleId) bundleBySku[sku] = app.iosBundleId;
+    }
+  }
   const result = await importStoreCsv(
     appKey,
     reportText,
     "app_store",
     "USD",
     "app_store_connect_api",
-    { targetDate: date },
+    { targetDate: date, appKeyBySku, bundleBySku, requireSkuMatch: Object.keys(appKeyBySku).length > 0 },
   );
   return {
     appKey,

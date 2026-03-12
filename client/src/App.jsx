@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Chart } from "react-google-charts";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 const DEBUG_LOGS = String(import.meta.env.VITE_DEBUG_LOGS || "false").toLowerCase() === "true";
@@ -131,23 +132,40 @@ function sumTotals(rows) {
 }
 
 function TrendCard({ title, series, keyName }) {
-  const values = series.map((d) => Number(d[keyName]) || 0);
-  const max = Math.max(...values, 0);
-  const points = values
-    .map((v, idx) => {
-      const x = values.length > 1 ? (idx / (values.length - 1)) * 100 : 0;
-      const y = max > 0 ? 100 - (v / max) * 100 : 100;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const chartData = useMemo(() => {
+    const rows = (series || []).map((row) => [
+      new Date(`${row.date}T00:00:00Z`),
+      Number(row[keyName]) || 0,
+    ]);
+    return [["Date", title], ...rows];
+  }, [keyName, series, title]);
 
   return (
     <div className="rounded-xl border bg-white p-6 shadow-sm">
       <h2 className="mb-4 text-lg font-semibold">{title}</h2>
       <div className="h-56 rounded-lg border bg-gray-50 p-3">
-        <svg viewBox="0 0 100 100" className="h-full w-full">
-          <polyline fill="none" stroke="#2563eb" strokeWidth="2.5" points={points} />
-        </svg>
+        {(series || []).length ? (
+          <Chart
+            chartType="LineChart"
+            width="100%"
+            height="100%"
+            data={chartData}
+            options={{
+              legend: { position: "none" },
+              backgroundColor: "transparent",
+              chartArea: { left: 40, top: 12, right: 20, bottom: 32 },
+              hAxis: { format: "MMM d" },
+              vAxis: { minValue: 0 },
+              colors: ["#2563eb"],
+              lineWidth: 3,
+              pointSize: 4,
+            }}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-gray-500">
+            Veri yok
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1000,36 +1018,62 @@ function LoadingSkeleton() {
 
 function PlatformRevenueListCard({ title, items, displayCurrency, avgRate, rateMap }) {
   const useConversion = displayCurrency === "USD" || displayCurrency === "TRY";
+  const normalizedItems = (items || []).map((item) => ({
+    currency: String(item.currency || "USD").toUpperCase(),
+    revenue: Number(item.revenue) || 0,
+  }));
+  const convertibleItems = useConversion
+    ? normalizedItems.filter((item) =>
+        (item.currency === displayCurrency) ||
+        ((item.currency === "TRY" || item.currency === "USD") && (displayCurrency === "TRY" || displayCurrency === "USD")))
+    : [];
+  const ignoredCount = useConversion ? normalizedItems.length - convertibleItems.length : 0;
+  const convertedTotal = useConversion
+    ? convertibleItems.reduce(
+        (sum, item) =>
+          sum +
+          convertCurrency(
+            item.revenue,
+            item.currency,
+            displayCurrency,
+            avgRate,
+          ),
+        0,
+      )
+    : 0;
   return (
     <div className="rounded-lg border bg-gray-50 p-4">
       <p className="text-sm font-semibold text-gray-800">{title}</p>
       <div className="mt-2 space-y-1 text-sm text-gray-700">
         {(items || []).length ? (
-          items.map((item) => (
-            <p key={`${title}-${item.currency}`}>
-              {useConversion && String(item.currency || "").toUpperCase() !== displayCurrency
-                ? `${item.currency} → ${displayCurrency}`
-                : item.currency}:
+          useConversion ? (
+            <p>
+              {displayCurrency}:
               {" "}
               <span className="font-semibold">
-                {useConversion
-                  ? formatCurrency(
-                      convertCurrency(
-                        Number(item.revenue) || 0,
-                        String(item.currency || "USD").toUpperCase(),
-                        displayCurrency,
-                        avgRate,
-                      ),
-                      displayCurrency,
-                    )
-                  : formatCurrencyCode(item.revenue, item.currency)}
+                {formatCurrency(convertedTotal, displayCurrency)}
               </span>
             </p>
-          ))
+          ) : (
+            items.map((item) => (
+              <p key={`${title}-${item.currency}`}>
+                {item.currency}:
+                {" "}
+                <span className="font-semibold">
+                  {formatCurrencyCode(item.revenue, item.currency)}
+                </span>
+              </p>
+            ))
+          )
         ) : (
           <p className="text-gray-500">Veri yok</p>
         )}
       </div>
+      {useConversion && ignoredCount > 0 ? (
+        <p className="mt-2 text-xs text-gray-500">
+          {ignoredCount} para birimi, kayıtlı kur olmadığı için bu toplamdan hariç tutuldu.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -168,18 +168,24 @@ function normalizeRawLine(row, store, fallbackCurrency = "USD", options = {}) {
   const netAmount = asNumber(
     pickValue(row, ["net_revenue", "Net Revenue", "Developer Proceeds", "Amount (Merchant Currency)", "Earnings (Merchant Currency)"]),
   );
-  const currency = pickValue(row, ["currency", "Currency", "Merchant Currency"]) || fallbackCurrency;
+  const currency =
+    pickValue(row, ["Currency of Proceeds", "currency", "Currency", "Merchant Currency", "Customer Currency"]) ||
+    fallbackCurrency;
+  const skuId = pickValue(row, ["SKU", "SKU ID", "Sku ID", "sku_id"]);
+  const mappedAppKey = skuId && options.appKeyBySku ? options.appKeyBySku[String(skuId).trim()] : null;
+  const mappedBundle = skuId && options.bundleBySku ? options.bundleBySku[String(skuId).trim()] : null;
 
   return {
+    appKey: mappedAppKey || null,
     store,
     metricDate,
     currency,
     buyerCurrency: pickValue(row, ["Buyer currency", "Buyer Currency", "Customer Currency"]),
-    buyerCountry: pickValue(row, ["Buyer country", "Buyer Country"]),
-    packageId: pickValue(row, ["Package ID", "package_id", "Package Id"]),
-    skuId: pickValue(row, ["SKU ID", "Sku ID", "sku_id"]),
-    productTitle: pickValue(row, ["Product Title", "product_title"]),
-    productType: pickValue(row, ["Product type", "Product Type", "product_type"]),
+    buyerCountry: pickValue(row, ["Buyer country", "Buyer Country", "Country Code"]),
+    packageId: packageId || mappedBundle || null,
+    skuId,
+    productTitle: pickValue(row, ["Product Title", "Title", "product_title"]),
+    productType: pickValue(row, ["Product type", "Product Type", "Product Type Identifier", "product_type"]),
     transactionType: pickValue(row, ["Transaction Type", "transaction_type"]),
     refundType: pickValue(row, ["Refund type", "Refund Type", "refund_type"]),
     taxType: pickValue(row, ["Tax Type", "tax_type"]),
@@ -235,7 +241,7 @@ function normalizeRow(row, store, fallbackCurrency = "USD", options = {}) {
   );
   const currency = pickValue(
     row,
-    ["currency", "Currency", "Customer Currency", "Merchant Currency"],
+    ["Currency of Proceeds", "currency", "Currency", "Customer Currency", "Merchant Currency"],
   ) || fallbackCurrency;
 
   return {
@@ -257,6 +263,7 @@ async function importStoreCsv(appKey, csvText, store, currency = "USD", source =
   let acceptedRawLines = 0;
   const parsedDates = new Set();
   const matchedDates = new Set();
+  let unmatchedAppLines = 0;
 
   for (const parsedRow of parsed) {
     const extractedDate = extractMetricDate(parsedRow);
@@ -264,10 +271,14 @@ async function importStoreCsv(appKey, csvText, store, currency = "USD", source =
 
     const rawLine = normalizeRawLine(parsedRow, store, currency, options);
     if (rawLine) {
+      if (store === "app_store" && options.requireSkuMatch && !rawLine.appKey) {
+        unmatchedAppLines += 1;
+        continue;
+      }
       acceptedRawLines += 1;
       matchedDates.add(rawLine.metricDate);
       await storeRevenueRepo.insertStoreRevenueLine({
-        appKey,
+        appKey: rawLine.appKey || appKey,
         store,
         metricDate: rawLine.metricDate,
         source,
@@ -322,6 +333,7 @@ async function importStoreCsv(appKey, csvText, store, currency = "USD", source =
       targetDate: options.targetDate || null,
       parsedDates: [...parsedDates].sort(),
       matchedDates: [...matchedDates].sort(),
+      unmatchedAppLines,
     },
   };
 }

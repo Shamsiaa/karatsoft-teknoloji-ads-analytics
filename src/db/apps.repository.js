@@ -8,6 +8,7 @@ async function listApps() {
         app_key AS appKey,
         app_name AS appName,
         ios_bundle_id AS iosBundleId,
+        ios_sku AS iosSku,
         android_package_name AS androidPackageName,
         is_active AS isActive
       FROM apps
@@ -25,6 +26,7 @@ async function upsertApp(app) {
     appKey,
     appName,
     iosBundleId = null,
+    iosSku = null,
     androidPackageName = null,
     isActive = true,
   } = app;
@@ -32,11 +34,12 @@ async function upsertApp(app) {
   await pool.query(
     `
       INSERT INTO apps (
-        app_key, app_name, ios_bundle_id, android_package_name, is_active
-      ) VALUES (?, ?, ?, ?, ?)
+        app_key, app_name, ios_bundle_id, ios_sku, android_package_name, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         app_name = VALUES(app_name),
         ios_bundle_id = VALUES(ios_bundle_id),
+        ios_sku = VALUES(ios_sku),
         android_package_name = VALUES(android_package_name),
         is_active = VALUES(is_active),
         updated_at = CURRENT_TIMESTAMP
@@ -45,6 +48,7 @@ async function upsertApp(app) {
       appKey,
       appName,
       iosBundleId,
+      iosSku,
       androidPackageName,
       isActive ? 1 : 0,
     ],
@@ -59,6 +63,7 @@ async function getAppByKey(appKey) {
         app_key AS appKey,
         app_name AS appName,
         ios_bundle_id AS iosBundleId,
+        ios_sku AS iosSku,
         android_package_name AS androidPackageName,
         is_active AS isActive
       FROM apps

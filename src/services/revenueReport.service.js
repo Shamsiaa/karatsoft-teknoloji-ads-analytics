@@ -4,16 +4,25 @@ const logger = require("../utils/logger");
 const https = require("https");
 
 async function getSpendRevenueComparison(startDate, endDate, appKey = null) {
-  const [spendTotal, directStoreRevenue] = await Promise.all([
+  const [spendTotal, directStoreRevenue, rawByStoreCurrency] = await Promise.all([
     adMetricsRepo.getCostTotal(startDate, endDate, null, appKey),
     storeRevenueRepo.getNetRevenueTotal(startDate, endDate, appKey),
+    storeRevenueRepo.getRawRevenueByStoreCurrency(startDate, endDate, appKey),
   ]);
 
-  const revenueTotal = directStoreRevenue;
-  const revenueSource =
+  let revenueTotal = directStoreRevenue;
+  let revenueSource =
     directStoreRevenue > 0
       ? "direct_store_financial_data"
       : "no_revenue_source";
+
+  if (directStoreRevenue <= 0 && Array.isArray(rawByStoreCurrency) && rawByStoreCurrency.length > 0) {
+    const fallbackTotal = rawByStoreCurrency.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+    if (fallbackTotal > 0) {
+      revenueTotal = fallbackTotal;
+      revenueSource = "store_lines_raw";
+    }
+  }
 
   const roas = spendTotal > 0 ? revenueTotal / spendTotal : null;
 
@@ -37,7 +46,9 @@ async function getSpendRevenueComparison(startDate, endDate, appKey = null) {
     revenueDataType:
       revenueSource === "direct_store_financial_data"
         ? "store_financial_report"
-        : "none",
+        : revenueSource === "store_lines_raw"
+          ? "store_lines_raw"
+          : "none",
     revenueGranularity:
       revenueSource === "direct_store_financial_data"
         ? "daily"
@@ -46,16 +57,19 @@ async function getSpendRevenueComparison(startDate, endDate, appKey = null) {
     note:
       revenueSource === "direct_store_financial_data"
         ? "Revenue is derived from direct store financial data."
-        : "No revenue source data found for selected filters/date range.",
+        : revenueSource === "store_lines_raw"
+          ? "Revenue is derived from raw store line items (no aggregation summary)."
+          : "No revenue source data found for selected filters/date range.",
   };
 }
 
 async function getPlatformSpendRevenueComparison(startDate, endDate, appKey = null) {
-  const [appleSpend, googleSpend, storeSplit, directStoreRevenueTotal] = await Promise.all([
+  const [appleSpend, googleSpend, storeSplit, directStoreRevenueTotal, rawByStoreCurrency] = await Promise.all([
     adMetricsRepo.getCostTotal(startDate, endDate, "apple", appKey),
     adMetricsRepo.getCostTotal(startDate, endDate, "google", appKey),
     storeRevenueRepo.getNetRevenueByStore(startDate, endDate, appKey),
     storeRevenueRepo.getNetRevenueTotal(startDate, endDate, appKey),
+    storeRevenueRepo.getRawRevenueByStoreCurrency(startDate, endDate, appKey),
   ]);
 
   const totalSpend = appleSpend + googleSpend;
@@ -73,11 +87,31 @@ async function getPlatformSpendRevenueComparison(startDate, endDate, appKey = nu
   if (directStoreRevenueTotal > 0) {
     totalRevenue = directStoreRevenueTotal;
   }
+  if (directStoreRevenueTotal <= 0 && Array.isArray(rawByStoreCurrency) && rawByStoreCurrency.length > 0) {
+    const fallback = rawByStoreCurrency.reduce(
+      (acc, row) => {
+        const amount = Number(row.total) || 0;
+        if (row.store === "app_store") acc.apple += amount;
+        if (row.store === "google_play") acc.google += amount;
+        return acc;
+      },
+      { apple: 0, google: 0 },
+    );
+    if (fallback.apple + fallback.google > 0) {
+      appleRevenue = fallback.apple;
+      googleRevenue = fallback.google;
+      totalRevenue = fallback.apple + fallback.google;
+      revenueAttribution = "store_lines_raw";
+      appleRevenueSource = "store_lines_raw";
+      googleRevenueSource = "store_lines_raw";
+    }
+  }
 
   const appleRoas = appleSpend > 0 ? appleRevenue / appleSpend : null;
   const googleRoas = googleSpend > 0 ? googleRevenue / googleSpend : null;
   const totalRoas = totalSpend > 0 ? totalRevenue / totalSpend : null;
 
+  const useFallback = false;
   logger.info("revenue.platform_compare.calculated", {
     startDate,
     endDate,

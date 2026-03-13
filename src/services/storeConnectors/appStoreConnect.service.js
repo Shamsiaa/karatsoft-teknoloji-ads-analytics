@@ -118,4 +118,5 @@ async function syncAppStoreRevenueForDate(appKey, date) {
 
 module.exports = {
   syncAppStoreRevenueForDate,
+  downloadAppStoreReport,
 };

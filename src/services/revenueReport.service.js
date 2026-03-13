@@ -322,6 +322,32 @@ async function getPlatformRevenueRawByCurrency(startDate, endDate, appKey = null
   };
 }
 
+async function getPlatformRevenueDailyByCurrency(startDate, endDate, appKey = null) {
+  const rows = await storeRevenueRepo.getRawRevenueByStoreCurrencyDate(startDate, endDate, appKey);
+
+  const apple = [];
+  const google = [];
+  for (const row of rows) {
+    const item = {
+      date: row.metricDate,
+      currency: row.currency,
+      revenue: row.total,
+    };
+    if (row.store === "app_store") apple.push(item);
+    if (row.store === "google_play") google.push(item);
+  }
+
+  return {
+    startDate,
+    endDate,
+    appKey,
+    mathMode: "raw_csv_no_conversion",
+    note: "Ham magaza verisi (donusum yok). Para birimleri birlestirilmedi.",
+    apple,
+    google,
+  };
+}
+
 async function getStoreRevenueCoverage(startDate, endDate, appKey = null) {
   const rows = await storeRevenueRepo.getStoreRevenueCoverage(startDate, endDate, appKey);
 
@@ -348,5 +374,6 @@ module.exports = {
   getPlatformSpendRevenueComparison,
   getPlatformSpendRevenueComparisonNormalized,
   getPlatformRevenueRawByCurrency,
+  getPlatformRevenueDailyByCurrency,
   getStoreRevenueCoverage,
 };

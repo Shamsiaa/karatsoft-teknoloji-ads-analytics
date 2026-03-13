@@ -3,6 +3,7 @@ const {
   getPlatformSpendRevenueComparison,
   getPlatformSpendRevenueComparisonNormalized,
   getPlatformRevenueRawByCurrency,
+  getPlatformRevenueDailyByCurrency,
   getStoreRevenueCoverage,
 } = require("../services/revenueReport.service");
 
@@ -122,6 +123,31 @@ async function getPlatformRevenueRaw(req, res) {
   }
 }
 
+async function getPlatformRevenueDaily(req, res) {
+  try {
+    const { startDate, endDate, appKey } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: "startDate and endDate query parameters are required (format: YYYY-MM-DD)",
+      });
+    }
+
+    if (!isValidDate(startDate) || !isValidDate(endDate)) {
+      return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD" });
+    }
+
+    const data = await getPlatformRevenueDailyByCurrency(startDate, endDate, appKey || null);
+    return res.json(data);
+  } catch (error) {
+    console.error("Error getting daily platform revenue by currency:", error);
+    return res.status(500).json({
+      error: "Failed to get daily platform revenue by currency",
+      message: error.message,
+    });
+  }
+}
+
 async function getRevenueCoverage(req, res) {
   try {
     const { startDate, endDate, appKey } = req.query;
@@ -173,5 +199,6 @@ module.exports = {
   getPlatformComparison,
   getPlatformComparisonNormalized,
   getPlatformRevenueRaw,
+  getPlatformRevenueDaily,
   getRevenueCoverage,
 };

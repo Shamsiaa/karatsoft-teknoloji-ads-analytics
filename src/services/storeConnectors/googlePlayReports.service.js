@@ -315,4 +315,5 @@ async function syncGooglePlayRevenueForDate(appKey, date) {
 
 module.exports = {
   syncGooglePlayRevenueForDate,
+  downloadLatestPlayReport,
 };

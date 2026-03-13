@@ -73,6 +73,36 @@ function convertWithUsdBase(value, fromCurrency, toCurrency, avgRates) {
   return (Number(value) || 0) * (usdToTo / usdToFrom);
 }
 
+function convertWithUsdBaseDaily(value, fromCurrency, toCurrency, date, rateMap, avgRates) {
+  const from = String(fromCurrency || "USD").toUpperCase();
+  const to = String(toCurrency || "USD").toUpperCase();
+  if (from === to) return value;
+  const usdToFrom =
+    from === "USD"
+      ? 1
+      : rateMap?.[from]?.[date] ?? avgRates?.[from];
+  const usdToTo =
+    to === "USD"
+      ? 1
+      : rateMap?.[to]?.[date] ?? avgRates?.[to];
+  if (!usdToFrom || !usdToTo) return null;
+  return (Number(value) || 0) * (usdToTo / usdToFrom);
+}
+
+function sumRevenueDaily(items, displayCurrency, rateMap, avgRates) {
+  return (items || []).reduce((sum, item) => {
+    const converted = convertWithUsdBaseDaily(
+      Number(item.revenue) || 0,
+      item.currency,
+      displayCurrency,
+      item.date,
+      rateMap,
+      avgRates,
+    );
+    return sum + (converted ?? 0);
+  }, 0);
+}
+
 function getPlatformCurrency(platform) {
   if (platform === "google") return "TRY";
   if (platform === "apple") return "USD";
@@ -188,6 +218,7 @@ export default function App() {
   const [previousTotals, setPreviousTotals] = useState(null);
   const [previousRows, setPreviousRows] = useState([]);
   const [platformRevenueRaw, setPlatformRevenueRaw] = useState(null);
+  const [platformRevenueDaily, setPlatformRevenueDaily] = useState(null);
   const [adsCoverage, setAdsCoverage] = useState(null);
   const [revenueCoverage, setRevenueCoverage] = useState(null);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
@@ -268,6 +299,11 @@ export default function App() {
         platformRevenueRawUrl.searchParams.set("endDate", range.endDate);
         if (appFilter !== "all") platformRevenueRawUrl.searchParams.set("appKey", appFilter);
 
+        const platformRevenueDailyUrl = new URL(`${API_BASE_URL}/api/revenue-report/platform-revenue-daily`);
+        platformRevenueDailyUrl.searchParams.set("startDate", range.startDate);
+        platformRevenueDailyUrl.searchParams.set("endDate", range.endDate);
+        if (appFilter !== "all") platformRevenueDailyUrl.searchParams.set("appKey", appFilter);
+
         const adsCoverageUrl = new URL(`${API_BASE_URL}/api/ads-report/coverage`);
         adsCoverageUrl.searchParams.set("startDate", range.startDate);
         adsCoverageUrl.searchParams.set("endDate", range.endDate);
@@ -281,11 +317,12 @@ export default function App() {
 
         const schedulerUrl = `${API_BASE_URL}/api/system/scheduler-status`;
 
-        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, adsCoverageRes, revenueCoverageRes, schedulerRes] = await Promise.all([
+        const [adsRes, trendRes, prevAdsRes, platformRevenueRawRes, platformRevenueDailyRes, adsCoverageRes, revenueCoverageRes, schedulerRes] = await Promise.all([
           fetch(adsUrl),
           fetch(trendUrl),
           fetch(prevAdsUrl),
           fetch(platformRevenueRawUrl),
+          fetch(platformRevenueDailyUrl),
           fetch(adsCoverageUrl),
           fetch(revenueCoverageUrl),
           fetch(schedulerUrl),
@@ -295,15 +332,17 @@ export default function App() {
         if (!trendRes.ok) throw new Error(`ads-report trend failed: ${trendRes.status}`);
         if (!prevAdsRes.ok) throw new Error(`previous ads-report failed: ${prevAdsRes.status}`);
         if (!platformRevenueRawRes.ok) throw new Error(`platform-revenue-raw failed: ${platformRevenueRawRes.status}`);
+        if (!platformRevenueDailyRes.ok) throw new Error(`platform-revenue-daily failed: ${platformRevenueDailyRes.status}`);
         if (!adsCoverageRes.ok) throw new Error(`ads-coverage failed: ${adsCoverageRes.status}`);
         if (!revenueCoverageRes.ok) throw new Error(`revenue-coverage failed: ${revenueCoverageRes.status}`);
         if (!schedulerRes.ok) throw new Error(`scheduler-status failed: ${schedulerRes.status}`);
 
-        const [adsData, trendData, prevAdsData, platformRevenueRawData, adsCoverageData, revenueCoverageData, schedulerData] = await Promise.all([
+        const [adsData, trendData, prevAdsData, platformRevenueRawData, platformRevenueDailyData, adsCoverageData, revenueCoverageData, schedulerData] = await Promise.all([
           adsRes.json(),
           trendRes.json(),
           prevAdsRes.json(),
           platformRevenueRawRes.json(),
+          platformRevenueDailyRes.json(),
           adsCoverageRes.json(),
           revenueCoverageRes.json(),
           schedulerRes.json(),
@@ -317,6 +356,7 @@ export default function App() {
         setPreviousTotals(sumTotals(previousRows));
         setPreviousRows(previousRows);
         setPlatformRevenueRaw(platformRevenueRawData);
+        setPlatformRevenueDaily(platformRevenueDailyData);
         setAdsCoverage(adsCoverageData);
         setRevenueCoverage(revenueCoverageData);
         setSchedulerStatus(schedulerData);
@@ -339,12 +379,12 @@ export default function App() {
 
   useEffect(() => {
     async function loadFxRates() {
-      if (!platformRevenueRaw) return;
+      if (!platformRevenueDaily) return;
       const currencySet = new Set(["USD", "TRY", displayCurrency]);
-      for (const item of platformRevenueRaw.apple || []) {
+      for (const item of platformRevenueDaily.apple || []) {
         if (item.currency) currencySet.add(String(item.currency).toUpperCase());
       }
-      for (const item of platformRevenueRaw.google || []) {
+      for (const item of platformRevenueDaily.google || []) {
         if (item.currency) currencySet.add(String(item.currency).toUpperCase());
       }
       const currencies = [...currencySet].filter(Boolean).sort();
@@ -364,9 +404,20 @@ export default function App() {
       }
     }
     loadFxRates();
-  }, [displayCurrency, platformRevenueRaw, range.endDate, range.startDate]);
+  }, [displayCurrency, platformRevenueDaily, range.endDate, range.startDate]);
 
   const avgRates = useMemo(() => exchangeRates?.avgRates || {}, [exchangeRates]);
+  const rateMap = useMemo(() => {
+    const rows = exchangeRates?.rows || [];
+    const map = {};
+    for (const r of rows) {
+      const code = r.currencyCode || r.currency;
+      if (!code || !r.rateDate) continue;
+      if (!map[code]) map[code] = {};
+      map[code][r.rateDate] = Number(r.exchangeRate);
+    }
+    return map;
+  }, [exchangeRates]);
 
   const tableRows = useMemo(
     () =>
@@ -755,24 +806,28 @@ export default function App() {
                     <PlatformRevenueListCard
                       title="Apple Revenue"
                       items={platformRevenueRaw.apple}
+                      dailyItems={platformRevenueDaily?.apple}
                       displayCurrency={displayCurrency}
                       avgRates={avgRates}
+                      rateMap={rateMap}
                     />
                   ) : null}
                   {(platform === "all" || platform === "google") ? (
                     <PlatformRevenueListCard
                       title="Google Revenue"
                       items={platformRevenueRaw.google}
+                      dailyItems={platformRevenueDaily?.google}
                       displayCurrency={displayCurrency}
                       avgRates={avgRates}
+                      rateMap={rateMap}
                     />
                   ) : null}
                 </div>
                 <p className="mt-3 text-xs text-gray-500">
-                  Ham mağaza verisi (dönüşüm yok)
+                  Ham mağaza verisi (günlük kur ile dönüştürüldü)
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  Para birimleri birleştirilmedi
+                  Dönüşüm USD bazlı günlük kurlarla hesaplanır
                 </p>
               </>
             ) : (
@@ -1014,27 +1069,22 @@ function LoadingSkeleton() {
   );
 }
 
-function PlatformRevenueListCard({ title, items, displayCurrency, avgRates }) {
+function PlatformRevenueListCard({ title, items, dailyItems, displayCurrency, avgRates, rateMap }) {
   const useConversion = displayCurrency === "USD" || displayCurrency === "TRY";
   const normalizedItems = (items || []).map((item) => ({
     currency: String(item.currency || "USD").toUpperCase(),
     revenue: Number(item.revenue) || 0,
   }));
-  const convertibleItems = useConversion
-    ? normalizedItems.filter((item) => {
-        const usdToFrom = item.currency === "USD" ? 1 : avgRates?.[item.currency];
-        const usdToTo = displayCurrency === "USD" ? 1 : avgRates?.[displayCurrency];
-        return usdToFrom && usdToTo;
-      })
-    : [];
-  const ignoredCount = useConversion ? normalizedItems.length - convertibleItems.length : 0;
+  const ignoredCount = useConversion
+    ? (dailyItems || []).reduce((count, item) => {
+        const from = String(item.currency || "USD").toUpperCase();
+        const usdToFrom = from === "USD" ? 1 : (rateMap?.[from]?.[item.date] ?? avgRates?.[from]);
+        const usdToTo = displayCurrency === "USD" ? 1 : (rateMap?.[displayCurrency]?.[item.date] ?? avgRates?.[displayCurrency]);
+        return usdToFrom && usdToTo ? count : count + 1;
+      }, 0)
+    : 0;
   const convertedTotal = useConversion
-    ? convertibleItems.reduce(
-        (sum, item) =>
-          sum +
-          (convertWithUsdBase(item.revenue, item.currency, displayCurrency, avgRates) ?? 0),
-        0,
-      )
+    ? sumRevenueDaily(dailyItems || [], displayCurrency, rateMap, avgRates)
     : 0;
   return (
     <div className="rounded-lg border bg-gray-50 p-4">

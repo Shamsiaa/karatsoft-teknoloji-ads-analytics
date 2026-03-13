@@ -267,6 +267,34 @@ async function getRawRevenueByStoreCurrency(startDate, endDate, appKey = null) {
   }));
 }
 
+async function getRawRevenueByStoreCurrencyDate(startDate, endDate, appKey = null) {
+  const conditions = ["metric_date BETWEEN ? AND ?"];
+  const params = [startDate, endDate];
+
+  if (appKey) {
+    conditions.push("app_key = ?");
+    params.push(appKey);
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT store, metric_date, currency, COALESCE(SUM(net_amount), 0) AS total
+      FROM store_revenue_lines
+      WHERE ${conditions.join(" AND ")}
+      GROUP BY store, metric_date, currency
+      ORDER BY store, metric_date, currency
+    `,
+    params,
+  );
+
+  return rows.map((r) => ({
+    store: r.store,
+    metricDate: r.metric_date ? new Date(r.metric_date).toISOString().slice(0, 10) : null,
+    currency: r.currency || "UNKNOWN",
+    total: Number(r.total) || 0,
+  }));
+}
+
 async function getStoreRevenueCoverage(startDate, endDate, appKey = null) {
   const conditions = ["metric_date BETWEEN ? AND ?"];
   const params = [startDate, endDate];
@@ -310,5 +338,6 @@ module.exports = {
   getNetRevenueByStoreCurrency,
   listStoreRevenueLines,
   getRawRevenueByStoreCurrency,
+  getRawRevenueByStoreCurrencyDate,
   getStoreRevenueCoverage,
 };

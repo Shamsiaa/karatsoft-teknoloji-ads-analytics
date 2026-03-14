@@ -28,3 +28,6 @@ Thumbs.db
 photospy-ai-e1f9410cbad5.json
 my_dump.sql
 dump_file.sql
+*.p8
+.env
+keys/
